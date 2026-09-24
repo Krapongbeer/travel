@@ -90,33 +90,39 @@ function switchTab(tabName) {
 async function loadAirports() {
     try {
         const res = await fetch("/api/airports");
+        if (!res.ok) throw new Error("API unavailable");
         const data = await res.json();
         allAirports = data.airports || [];
-
-        const destSelect = document.getElementById("dest-select");
-        destSelect.innerHTML = "";
-
-        // Group by country
-        const groups = {};
-        allAirports.forEach(a => {
-            if (!groups[a.country]) groups[a.country] = [];
-            groups[a.country].push(a);
-        });
-
-        for (const [country, airports] of Object.entries(groups)) {
-            const optgroup = document.createElement("optgroup");
-            optgroup.label = country;
-            airports.forEach(a => {
-                const opt = document.createElement("option");
-                opt.value = a.code;
-                opt.textContent = `${a.flag} ${a.city} (${a.code})`;
-                if (a.code === "NRT") opt.selected = true;
-                optgroup.appendChild(opt);
-            });
-            destSelect.appendChild(optgroup);
-        }
     } catch (e) {
-        console.error("Failed to load airports", e);
+        if (typeof ASIAN_AIRPORTS_DATA !== "undefined") {
+            allAirports = Object.entries(ASIAN_AIRPORTS_DATA).map(([code, a]) => ({
+                code, ...a
+            }));
+        }
+    }
+
+    const destSelect = document.getElementById("dest-select");
+    if (!destSelect) return;
+    destSelect.innerHTML = "";
+
+    // Group by country
+    const groups = {};
+    allAirports.forEach(a => {
+        if (!groups[a.country]) groups[a.country] = [];
+        groups[a.country].push(a);
+    });
+
+    for (const [country, airports] of Object.entries(groups)) {
+        const optgroup = document.createElement("optgroup");
+        optgroup.label = country;
+        airports.forEach(a => {
+            const opt = document.createElement("option");
+            opt.value = a.code;
+            opt.textContent = `${a.flag} ${a.city} (${a.code})`;
+            if (a.code === "NRT") opt.selected = true;
+            optgroup.appendChild(opt);
+        });
+        destSelect.appendChild(optgroup);
     }
 }
 
@@ -184,35 +190,50 @@ async function performSearch(origin, destination, departureDate, returnDate, adu
     document.getElementById("loading-spinner").classList.remove("hidden");
     document.getElementById("results-wrapper").classList.add("hidden");
 
+    let data = null;
     try {
         const res = await fetch("/api/search", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(currentSearchQuery)
         });
-        const data = await res.json();
-        if (!res.ok) {
-            throw new Error(data.detail || "เกิดข้อผิดพลาดในการค้นหา");
+        if (res.ok) {
+            data = await res.json();
+        } else {
+            const errData = await res.json().catch(() => ({}));
+            if (errData.detail) throw new Error(errData.detail);
+            throw new Error("API unavailable");
         }
-        currentOffers = data.offers || [];
-
-        populateAirlineFilter(currentOffers);
-        renderStats(data);
-        applyFilters();
-
-        // Load date grid and price chart in parallel
-        await Promise.all([
-            loadDateGrid(origin, destination, departureDate, returnDate, adults),
-            loadPriceChart(origin, destination, departureDate)
-        ]);
-
-        document.getElementById("loading-spinner").classList.add("hidden");
-        document.getElementById("results-wrapper").classList.remove("hidden");
-    } catch (e) {
-        console.error("Search failed", e);
-        showToast(e.message || "เกิดข้อผิดพลาดในการค้นหาตั๋ว", "error");
-        document.getElementById("loading-spinner").classList.add("hidden");
+    } catch (apiErr) {
+        if (apiErr.message && apiErr.message.includes("ย้อนหลัง")) {
+            showToast(apiErr.message, "error");
+            document.getElementById("loading-spinner").classList.add("hidden");
+            return;
+        }
+        // Seamless fallback to client engine on GitHub Pages or static host
+        if (typeof searchFlightsClient === "function") {
+            data = searchFlightsClient(origin, destination, departureDate, returnDate, adults);
+        } else {
+            console.error("Search failed", apiErr);
+            showToast(apiErr.message || "เกิดข้อผิดพลาดในการค้นหาตั๋ว", "error");
+            document.getElementById("loading-spinner").classList.add("hidden");
+            return;
+        }
     }
+
+    currentOffers = data?.offers || [];
+    populateAirlineFilter(currentOffers);
+    renderStats(data);
+    applyFilters();
+
+    // Load date grid and price chart in parallel
+    await Promise.all([
+        loadDateGrid(origin, destination, departureDate, returnDate, adults),
+        loadPriceChart(origin, destination, departureDate)
+    ]);
+
+    document.getElementById("loading-spinner").classList.add("hidden");
+    document.getElementById("results-wrapper").classList.remove("hidden");
 }
 
 
@@ -551,19 +572,28 @@ function resetFilters() {
 }
 
 async function loadPriceChart(origin, destination, departureDate) {
+    let history = [];
     try {
         const res = await fetch(`/api/history?origin=${origin}&destination=${destination}`);
-        const history = await res.json();
+        if (res.ok) {
+            history = await res.json();
+        }
+    } catch (e) {
+        // Fallback for GitHub Pages static mode
+    }
 
-        const ctx = document.getElementById("priceChart").getContext("2d");
+    try {
+        const chartEl = document.getElementById("priceChart");
+        if (!chartEl) return;
+        const ctx = chartEl.getContext("2d");
 
         // Generate mockup labels if fresh
-        const labels = history.length > 0 ? history.map(h => h.recorded_at) : ['1 สัปดาห์ก่อน', '5 วันก่อน', '3 วันก่อน', 'เมื่อวาน', 'วันนี้'];
-        const prices = history.length > 0 ? history.map(h => h.lowest_price) : [
-            currentOffers[0] ? currentOffers[0].price * 1.15 : 7500,
-            currentOffers[0] ? currentOffers[0].price * 1.10 : 7200,
-            currentOffers[0] ? currentOffers[0].price * 1.05 : 6800,
-            currentOffers[0] ? currentOffers[0].price * 1.02 : 6200,
+        const labels = (Array.isArray(history) && history.length > 0) ? history.map(h => h.recorded_at) : ['1 สัปดาห์ก่อน', '5 วันก่อน', '3 วันก่อน', 'เมื่อวาน', 'วันนี้'];
+        const prices = (Array.isArray(history) && history.length > 0) ? history.map(h => h.lowest_price) : [
+            currentOffers[0] ? Math.round(currentOffers[0].price * 1.15) : 7500,
+            currentOffers[0] ? Math.round(currentOffers[0].price * 1.10) : 7200,
+            currentOffers[0] ? Math.round(currentOffers[0].price * 1.05) : 6800,
+            currentOffers[0] ? Math.round(currentOffers[0].price * 1.02) : 6200,
             currentOffers[0] ? currentOffers[0].price : 5990
         ];
 
@@ -629,26 +659,47 @@ function closeTrackModal() {
     document.getElementById("modal-track").classList.add("hidden");
 }
 
+// LocalStorage Fallback Helpers for Watchlist and Passengers
+function getLocalPassengers() {
+    try { return JSON.parse(localStorage.getItem("airprice_passengers") || "[]"); } catch (e) { return []; }
+}
+function setLocalPassengers(list) {
+    try { localStorage.setItem("airprice_passengers", JSON.stringify(list)); } catch (e) {}
+}
+
+function getLocalWatchlists() {
+    try { return JSON.parse(localStorage.getItem("airprice_watchlists") || "[]"); } catch (e) { return []; }
+}
+function setLocalWatchlists(list) {
+    try { localStorage.setItem("airprice_watchlists", JSON.stringify(list)); } catch (e) {}
+}
+
 async function submitWatchlist(e) {
     e.preventDefault();
     const targetPrice = parseFloat(document.getElementById("modal-target-price").value);
     const notifyTg = document.getElementById("modal-notify-tg").checked;
     const notifyLine = document.getElementById("modal-notify-line").checked;
 
+    const item = {
+        id: Date.now(),
+        origin: currentSearchQuery.origin,
+        destination: currentSearchQuery.destination,
+        departure_date: currentSearchQuery.departure_date,
+        return_date: currentSearchQuery.return_date,
+        target_price: targetPrice,
+        current_lowest_price: currentOffers[0] ? currentOffers[0].price : targetPrice,
+        notify_telegram: notifyTg,
+        notify_line: notifyLine,
+        last_checked_at: new Date().toLocaleTimeString('th-TH')
+    };
+
     try {
         const res = await fetch("/api/watchlists", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                origin: currentSearchQuery.origin,
-                destination: currentSearchQuery.destination,
-                departure_date: currentSearchQuery.departure_date,
-                return_date: currentSearchQuery.return_date,
-                target_price: targetPrice,
-                notify_telegram: notifyTg,
-                notify_line: notifyLine
-            })
+            body: JSON.stringify(item)
         });
+        if (!res.ok) throw new Error("API not available");
         const data = await res.json();
         if (data.success) {
             showToast("เพิ่มการเฝ้าราคาสำเร็จ! ระบบจะแจ้งเตือนเมื่อราคาหลุดงบ", "success");
@@ -656,92 +707,120 @@ async function submitWatchlist(e) {
             await loadWatchlists();
         }
     } catch (e) {
-        showToast("ไม่สามารถบันทึกได้", "error");
+        const list = getLocalWatchlists();
+        list.push(item);
+        setLocalWatchlists(list);
+        showToast("เพิ่มการเฝ้าราคาสำเร็จ! (จัดเก็บในเบราว์เซอร์)", "success");
+        closeTrackModal();
+        await loadWatchlists();
     }
 }
 
 async function loadWatchlists() {
+    let list = [];
     try {
         const res = await fetch("/api/watchlists");
-        const list = await res.json();
-        
-        const badge = document.getElementById("watchlist-badge");
-        if (list.length > 0) {
-            badge.textContent = list.length;
-            badge.classList.remove("hidden");
-        } else {
-            badge.classList.add("hidden");
-        }
-
-        const container = document.getElementById("watchlist-container");
-        container.innerHTML = "";
-
-        if (list.length === 0) {
-            container.innerHTML = `<div class="col-span-full bg-white p-8 rounded-2xl text-center text-slate-500 border border-slate-200">ยังไม่มีรายการเฝ้าราคา คลิกค้นหาตั๋วแล้วกด "ตั้งแจ้งเตือนราคานี้" ได้เลยครับ</div>`;
-            return;
-        }
-
-        list.forEach(w => {
-            const card = document.createElement("div");
-            card.className = "bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 relative";
-            card.innerHTML = `
-                <div class="flex items-start justify-between">
-                    <div>
-                        <h4 class="font-bold text-slate-800 text-base">${w.origin} ✈ ${w.destination}</h4>
-                        <p class="text-xs text-slate-500">📅 ${w.departure_date} ${w.return_date ? 'ถึง ' + w.return_date : '(เที่ยวเดียว)'}</p>
-                    </div>
-                    <button onclick="deleteWatchlist(${w.id})" class="text-slate-400 hover:text-red-500 p-1">
-                        <i class="fa-solid fa-trash-can text-sm"></i>
-                    </button>
-                </div>
-                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
-                    <div>
-                        <span class="text-slate-400">งบเป้าหมาย:</span>
-                        <div class="font-bold text-emerald-600 text-sm">${w.target_price.toLocaleString()} THB</div>
-                    </div>
-                    <div>
-                        <span class="text-slate-400">ราคาล่าสุด:</span>
-                        <div class="font-bold text-slate-700 text-sm">${w.current_lowest_price ? w.current_lowest_price.toLocaleString() + ' THB' : 'รอตรวจสอบ'}</div>
-                    </div>
-                </div>
-                <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                    <span>เช็คล่าสุด: ${w.last_checked_at || 'กำลังรอตรวจ'}</span>
-                    <div class="flex items-center space-x-1.5">
-                        ${w.notify_telegram ? '<i class="fa-brands fa-telegram text-sky-500 text-xs" title="แจ้งเตือน Telegram"></i>' : ''}
-                        ${w.notify_line ? '<i class="fa-brands fa-line text-emerald-500 text-xs" title="แจ้งเตือน LINE"></i>' : ''}
-                    </div>
-                </div>
-            `;
-            container.appendChild(card);
-        });
+        if (!res.ok) throw new Error("API unavailable");
+        list = await res.json();
     } catch (e) {
-        console.error("Failed to load watchlists", e);
+        list = getLocalWatchlists();
     }
+        
+    const badge = document.getElementById("watchlist-badge");
+    if (list.length > 0) {
+        badge.textContent = list.length;
+        badge.classList.remove("hidden");
+    } else {
+        badge.classList.add("hidden");
+    }
+
+    const container = document.getElementById("watchlist-container");
+    container.innerHTML = "";
+
+    if (list.length === 0) {
+        container.innerHTML = `<div class="col-span-full bg-white p-8 rounded-2xl text-center text-slate-500 border border-slate-200">ยังไม่มีรายการเฝ้าราคา คลิกค้นหาตั๋วแล้วกด "ตั้งแจ้งเตือนราคานี้" ได้เลยครับ</div>`;
+        return;
+    }
+
+    list.forEach(w => {
+        const card = document.createElement("div");
+        card.className = "bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 relative";
+        card.innerHTML = `
+            <div class="flex items-start justify-between">
+                <div>
+                    <h4 class="font-bold text-slate-800 text-base">${w.origin} ✈ ${w.destination}</h4>
+                    <p class="text-xs text-slate-500">📅 ${w.departure_date} ${w.return_date ? 'ถึง ' + w.return_date : '(เที่ยวเดียว)'}</p>
+                </div>
+                <button onclick="deleteWatchlist(${w.id})" class="text-slate-400 hover:text-red-500 p-1">
+                    <i class="fa-solid fa-trash-can text-sm"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                <div>
+                    <span class="text-slate-400">งบเป้าหมาย:</span>
+                    <div class="font-bold text-emerald-600 text-sm">${(w.target_price || 0).toLocaleString()} THB</div>
+                </div>
+                <div>
+                    <span class="text-slate-400">ราคาล่าสุด:</span>
+                    <div class="font-bold text-slate-700 text-sm">${w.current_lowest_price ? w.current_lowest_price.toLocaleString() + ' THB' : 'รอตรวจสอบ'}</div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                <span>เช็คล่าสุด: ${w.last_checked_at || 'กำลังรอตรวจ'}</span>
+                <div class="flex items-center space-x-1.5">
+                    ${w.notify_telegram ? '<i class="fa-brands fa-telegram text-sky-500 text-xs" title="แจ้งเตือน Telegram"></i>' : ''}
+                    ${w.notify_line ? '<i class="fa-brands fa-line text-emerald-500 text-xs" title="แจ้งเตือน LINE"></i>' : ''}
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
 }
 
 async function deleteWatchlist(id) {
     if (!confirm("คุณต้องการลบรายการเฝ้าราคานี้ใช่หรือไม่?")) return;
     try {
-        await fetch(`/api/watchlists/${id}`, { method: "DELETE" });
+        const res = await fetch(`/api/watchlists/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("API unavailable");
         showToast("ลบรายการเฝ้าราคาแล้ว", "success");
         await loadWatchlists();
     } catch (e) {
-        showToast("ลบไม่สำเร็จ", "error");
+        let list = getLocalWatchlists();
+        list = list.filter(w => w.id !== id);
+        setLocalWatchlists(list);
+        showToast("ลบรายการเฝ้าราคาแล้ว", "success");
+        await loadWatchlists();
     }
 }
 
 async function checkWatchlistNow() {
+    showToast("กำลังสั่งตรวจเช็คราคาตั๋วทั้งหมด...", "info");
     try {
-        showToast("กำลังสั่งตรวจเช็คราคาตั๋วทั้งหมด...", "info");
         const res = await fetch("/api/watchlists/check-now", { method: "POST" });
-        const data = await res.json();
-        if (data.success) {
-            showToast("สแกนราคาเสร็จสิ้น!", "success");
-            await loadWatchlists();
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+                showToast("สแกนราคาเสร็จสิ้น!", "success");
+                await loadWatchlists();
+                return;
+            }
         }
-    } catch (e) {
-        showToast("เกิดข้อผิดพลาด", "error");
-    }
+    } catch (e) {}
+
+    // Client fallback: update local watchlists timestamp and latest prices
+    const list = getLocalWatchlists();
+    list.forEach(w => {
+        w.last_checked_at = new Date().toISOString();
+        if (typeof searchFlightsClient === "function") {
+            const results = searchFlightsClient(w.origin, w.destination, w.departure_date, w.return_date, 1);
+            if (results && results.length > 0) {
+                w.current_price = results[0].price;
+            }
+        }
+    });
+    setLocalWatchlists(list);
+    await loadWatchlists();
+    showToast("ตรวจเช็คราคาล่าสุดเรียบร้อยแล้ว!", "success");
 }
 
 // --- Passenger Profiles & Auto-Booking ---
@@ -766,87 +845,112 @@ async function savePassenger(e) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
+        if (!res.ok) throw new Error("API unavailable");
         const data = await res.json();
         if (data.success) {
             showToast("บันทึกข้อมูลผู้โดยสารสำเร็จ พร้อมใช้งาน Auto-Fill", "success");
             await loadPassengers();
         }
     } catch (e) {
-        showToast("บันทึกข้อมูลไม่สำเร็จ", "error");
+        const list = getLocalPassengers();
+        payload.id = Date.now();
+        list.push(payload);
+        setLocalPassengers(list);
+        showToast("บันทึกข้อมูลผู้โดยสารสำเร็จ (จัดเก็บในเบราว์เซอร์)", "success");
+        await loadPassengers();
     }
 }
 
 async function loadPassengers() {
+    let list = [];
     try {
         const res = await fetch("/api/passengers");
-        const list = await res.json();
-        const container = document.getElementById("passenger-list");
-        container.innerHTML = "";
+        if (!res.ok) throw new Error("API unavailable");
+        list = await res.json();
+    } catch (e) {
+        list = getLocalPassengers();
+    }
 
-        if (list.length === 0) {
-            container.innerHTML = `<div class="text-xs text-slate-500 py-3">ยังไม่มีข้อมูลผู้โดยสารที่บันทึกไว้ กรุณากรอกแบบฟอร์มด้านบน (สามารถบันทึกได้หลายคน)</div>`;
-            return;
-        }
+    const container = document.getElementById("passenger-list");
+    container.innerHTML = "";
 
-        // Update Bookmarklet drag button
-        try {
-            const scriptRes = await fetch("/api/autobook/script");
+    if (list.length === 0) {
+        container.innerHTML = `<div class="text-xs text-slate-500 py-3">ยังไม่มีข้อมูลผู้โดยสารที่บันทึกไว้ กรุณากรอกแบบฟอร์มด้านบน (สามารถบันทึกได้หลายคน)</div>`;
+        return;
+    }
+
+    // Update Bookmarklet drag button
+    try {
+        const scriptRes = await fetch("/api/autobook/script");
+        if (scriptRes.ok) {
             const scriptData = await scriptRes.json();
             const bmLink = document.getElementById("bookmarklet-link");
             if (bmLink && scriptData.script) {
                 bmLink.href = `javascript:(function(){${scriptData.script.replace(/\n\s*/g, ' ')}})()`;
             }
-        } catch (bmErr) {}
-
-        // Add master button to copy script for all passengers
-        const headerDiv = document.createElement("div");
-        headerDiv.className = "flex items-center justify-between pb-2 border-b border-slate-200 mb-3";
-        headerDiv.innerHTML = `
-            <span class="text-xs font-bold text-slate-600">👥 บันทึกไว้ทั้งหมด ${list.length} ท่าน</span>
-            <button onclick="copyAutoFillBookmarklet()" class="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition flex items-center space-x-1">
-                <i class="fa-solid fa-users"></i>
-                <span>คัดลอก Script กรอกทั้งคณะ (${list.length} คน)</span>
-            </button>
-        `;
-        container.appendChild(headerDiv);
-
-
-        list.forEach((p, idx) => {
-            const item = document.createElement("div");
-            item.className = "p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between";
-            item.innerHTML = `
-                <div>
-                    <div class="font-bold text-sm text-slate-800">
-                        <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-md text-xs font-bold mr-1.5">ผู้โดยสาร #${idx + 1}</span>
-                        ${p.title} ${p.first_name} ${p.last_name}
-                    </div>
-                    <div class="text-xs text-slate-500 mt-1">พาสปอร์ต: <span class="font-mono font-bold">${p.passport_number || '-'}</span> • เกิด: ${p.date_of_birth} • อีเมล: ${p.email} • โทร: ${p.phone_number}</div>
-                </div>
-                <div class="flex items-center space-x-2">
-                    <button onclick="copyAutoFillBookmarklet(${p.id})" title="คัดลอกเฉพาะคนนี้" class="text-xs px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition flex items-center space-x-1">
-                        <i class="fa-solid fa-code"></i>
-                        <span>Script</span>
-                    </button>
-                    <button onclick="deletePassenger(${p.id})" title="ลบผู้โดยสารนี้" class="text-xs p-2 text-slate-400 hover:text-red-600 rounded-lg transition">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </div>
-            `;
-            container.appendChild(item);
-        });
-    } catch (e) {
-        console.error("Failed to load passengers", e);
+        } else {
+            throw new Error();
+        }
+    } catch (bmErr) {
+        if (list.length > 0 && typeof generateClientAutofillScript === "function") {
+            const script = generateClientAutofillScript(list);
+            const bmLink = document.getElementById("bookmarklet-link");
+            if (bmLink) {
+                bmLink.href = `javascript:(function(){${script.replace(/\n\s*/g, ' ')}})()`;
+            }
+        }
     }
+
+    // Add master button to copy script for all passengers
+    const headerDiv = document.createElement("div");
+    headerDiv.className = "flex items-center justify-between pb-2 border-b border-slate-200 mb-3";
+    headerDiv.innerHTML = `
+        <span class="text-xs font-bold text-slate-600">👥 บันทึกไว้ทั้งหมด ${list.length} ท่าน</span>
+        <button onclick="copyAutoFillBookmarklet()" class="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition flex items-center space-x-1">
+            <i class="fa-solid fa-users"></i>
+            <span>คัดลอก Script กรอกทั้งคณะ (${list.length} คน)</span>
+        </button>
+    `;
+    container.appendChild(headerDiv);
+
+    list.forEach((p, idx) => {
+        const item = document.createElement("div");
+        item.className = "p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between";
+        item.innerHTML = `
+            <div>
+                <div class="font-bold text-sm text-slate-800">
+                    <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-md text-xs font-bold mr-1.5">ผู้โดยสาร #${idx + 1}</span>
+                    ${p.title} ${p.first_name} ${p.last_name}
+                </div>
+                <div class="text-xs text-slate-500 mt-1">พาสปอร์ต: <span class="font-mono font-bold">${p.passport_number || '-'}</span> • เกิด: ${p.date_of_birth} • อีเมล: ${p.email} • โทร: ${p.phone_number}</div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="copyAutoFillBookmarklet(${p.id})" title="คัดลอกเฉพาะคนนี้" class="text-xs px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition flex items-center space-x-1">
+                    <i class="fa-solid fa-code"></i>
+                    <span>Script</span>
+                </button>
+                <button onclick="deletePassenger(${p.id})" title="ลบผู้โดยสารนี้" class="text-xs p-2 text-slate-400 hover:text-red-600 rounded-lg transition">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+        `;
+        container.appendChild(item);
+    });
 }
 
 async function deletePassenger(id) {
     if (!confirm("ต้องการลบข้อมูลผู้โดยสารท่านนี้ใช่หรือไม่?")) return;
     try {
-        await fetch(`/api/passengers/${id}`, { method: "DELETE" });
+        const res = await fetch(`/api/passengers/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("API unavailable");
         showToast("ลบข้อมูลผู้โดยสารเรียบร้อยแล้ว", "success");
         await loadPassengers();
     } catch (e) {
-        showToast("ลบไม่สำเร็จ", "error");
+        let list = getLocalPassengers();
+        list = list.filter(p => p.id !== id);
+        setLocalPassengers(list);
+        showToast("ลบข้อมูลผู้โดยสารเรียบร้อยแล้ว", "success");
+        await loadPassengers();
     }
 }
 
@@ -932,15 +1036,28 @@ function closeAutoFillModal() {
 async function copyCurrentScript(showNotification = true) {
     try {
         const res = await fetch("/api/autobook/script");
-        const data = await res.json();
-        if (data.script) {
-            navigator.clipboard.writeText(data.script);
-            if (showNotification) {
-                showToast("คัดลอก Script Auto-Fill สำหรับผู้โดยสารทุกคนแล้ว!", "success");
+        if (res.ok) {
+            const data = await res.json();
+            if (data.script) {
+                navigator.clipboard.writeText(data.script);
+                if (showNotification) {
+                    showToast("คัดลอก Script Auto-Fill สำหรับผู้โดยสารทุกคนแล้ว!", "success");
+                }
+                return;
             }
         }
-    } catch (e) {
-        console.error(e);
+    } catch (e) {}
+
+    // Client fallback
+    const list = getLocalPassengers();
+    if (list.length > 0 && typeof generateClientAutofillScript === "function") {
+        const script = generateClientAutofillScript(list);
+        navigator.clipboard.writeText(script);
+        if (showNotification) {
+            showToast("คัดลอก Script Auto-Fill สำหรับผู้โดยสารทุกคนแล้ว!", "success");
+        }
+    } else {
+        showToast("ยังไม่มีข้อมูลผู้โดยสาร กรุณากรอกและบันทึกข้อมูลก่อน", "warning");
     }
 }
 
@@ -948,11 +1065,27 @@ async function copyAutoFillBookmarklet(passengerId) {
     try {
         const url = passengerId ? `/api/autobook/script?passenger_id=${passengerId}` : `/api/autobook/script`;
         const res = await fetch(url);
-        const data = await res.json();
-        navigator.clipboard.writeText(data.script);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.script) {
+                navigator.clipboard.writeText(data.script);
+                showToast("คัดลอก Script Auto-Fill ลง Clipboard แล้ว!", "success");
+                return;
+            }
+        }
+    } catch (e) {}
+
+    // Client fallback
+    let list = getLocalPassengers();
+    if (passengerId) {
+        list = list.filter(p => p.id === passengerId);
+    }
+    if (list.length > 0 && typeof generateClientAutofillScript === "function") {
+        const script = generateClientAutofillScript(list);
+        navigator.clipboard.writeText(script);
         showToast("คัดลอก Script Auto-Fill ลง Clipboard แล้ว!", "success");
-    } catch (e) {
-        showToast("คัดลอกไม่สำเร็จ", "error");
+    } else {
+        showToast("ยังไม่มีข้อมูลผู้โดยสาร กรุณากรอกและบันทึกข้อมูลก่อน", "warning");
     }
 }
 
@@ -962,36 +1095,73 @@ async function exportData(format) {
     if (!currentSearchQuery) return;
     showToast(`กำลังสร้างไฟล์ ${format.toUpperCase()}...`, "info");
     
-    const url = format === 'excel' ? '/api/export/excel' : '/api/export/csv';
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentSearchQuery)
-    });
-    
-    const blob = await response.blob();
+    try {
+        const url = format === 'excel' ? '/api/export/excel' : '/api/export/csv';
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(currentSearchQuery)
+        });
+        if (!response.ok) throw new Error("API not available");
+        const blob = await response.blob();
+        downloadBlob(blob, `flights_${currentSearchQuery.origin}_${currentSearchQuery.destination}.${format === 'excel' ? 'xlsx' : 'csv'}`);
+        showToast(`ดาวน์โหลดไฟล์ ${format.toUpperCase()} เรียบร้อยแล้ว`, "success");
+    } catch (e) {
+        // Client-side CSV export
+        const csvContent = generateClientCsv(currentOffers);
+        const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+        downloadBlob(blob, `flights_${currentSearchQuery.origin}_${currentSearchQuery.destination}.csv`);
+        showToast(`ดาวน์โหลดไฟล์ CSV เรียบร้อยแล้ว`, "success");
+    }
+}
+
+function downloadBlob(blob, filename) {
     const downloadUrl = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = `flights_${currentSearchQuery.origin}_${currentSearchQuery.destination}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    showToast(`ดาวน์โหลดไฟล์ ${format.toUpperCase()} เรียบร้อยแล้ว`, "success");
+}
+
+function generateClientCsv(offers) {
+    const headers = ["สายการบิน", "เที่ยวบิน", "เวลาออกเดินทาง", "เวลาถึง", "ระยะเวลา", "จุดแวะพัก", "รายละเอียด", "ราคา (THB)", "ลิงก์จอง"];
+    const rows = offers.map(o => [
+        `"${o.airline}"`,
+        `"${o.flight_number || ''}"`,
+        `"${o.departure_time}"`,
+        `"${o.arrival_time}"`,
+        `"${o.duration}"`,
+        `"${o.stops}"`,
+        `"${o.stop_details || ''}"`,
+        `"${o.price}"`,
+        `"${o.booking_url}"`
+    ]);
+    return [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
 }
 
 // --- Settings & Notifications ---
 async function loadSettings() {
+    let cfg = {};
     try {
         const res = await fetch("/api/settings");
-        const cfg = await res.json();
-        if (cfg.telegram_bot_token) document.getElementById("cfg-tg-token").value = cfg.telegram_bot_token;
-        if (cfg.telegram_chat_id) document.getElementById("cfg-tg-chat").value = cfg.telegram_chat_id;
-        if (cfg.line_notify_token) document.getElementById("cfg-line-token").value = cfg.line_notify_token;
-        if (cfg.discord_webhook_url) document.getElementById("cfg-discord-url").value = cfg.discord_webhook_url;
-    } catch (e) {
-        console.error("Failed to load settings", e);
+        if (res.ok) {
+            cfg = await res.json();
+        }
+    } catch (e) {}
+
+    // Fallback to localStorage
+    if (!cfg.telegram_bot_token && !cfg.telegram_chat_id && !cfg.line_notify_token && !cfg.discord_webhook_url) {
+        try {
+            cfg = JSON.parse(localStorage.getItem("airprice_settings") || "{}");
+        } catch (e) {}
     }
+
+    if (cfg.telegram_bot_token) document.getElementById("cfg-tg-token").value = cfg.telegram_bot_token;
+    if (cfg.telegram_chat_id) document.getElementById("cfg-tg-chat").value = cfg.telegram_chat_id;
+    if (cfg.line_notify_token) document.getElementById("cfg-line-token").value = cfg.line_notify_token;
+    if (cfg.discord_webhook_url) document.getElementById("cfg-discord-url").value = cfg.discord_webhook_url;
 }
 
 async function saveSettings(e) {
@@ -1003,19 +1173,24 @@ async function saveSettings(e) {
         discord_webhook_url: document.getElementById("cfg-discord-url").value.trim(),
     };
 
+    // Always persist to localStorage for client-side support
+    localStorage.setItem("airprice_settings", JSON.stringify(payload));
+
     try {
         const res = await fetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
-        const data = await res.json();
-        if (data.success) {
-            showToast("บันทึกการตั้งค่า Token เรียบร้อยแล้ว", "success");
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+                showToast("บันทึกการตั้งค่า Token เรียบร้อยแล้ว", "success");
+                return;
+            }
         }
-    } catch (e) {
-        showToast("บันทึกการตั้งค่าไม่สำเร็จ", "error");
-    }
+    } catch (e) {}
+    showToast("บันทึกการตั้งค่าลงเครื่อง (Local Browser) เรียบร้อยแล้ว", "success");
 }
 
 async function testNotification(channel) {
@@ -1026,15 +1201,18 @@ async function testNotification(channel) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ channel })
         });
-        const data = await res.json();
-        if (data.success) {
-            showToast(`ส่งการแจ้งเตือน ${channel.toUpperCase()} สำเร็จ!`, "success");
-        } else {
-            showToast(`ส่งไม่สำเร็จ: ${data.error || 'กรุณาตรวจสอบ Token'}`, "error");
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+                showToast(`ส่งการแจ้งเตือน ${channel.toUpperCase()} สำเร็จ!`, "success");
+                return;
+            } else {
+                showToast(`ส่งไม่สำเร็จ: ${data.error || 'กรุณาตรวจสอบ Token'}`, "error");
+                return;
+            }
         }
-    } catch (e) {
-        showToast("เกิดข้อผิดพลาดในการเชื่อมต่อ", "error");
-    }
+    } catch (e) {}
+    showToast(`โหมด GitHub Pages (Client-Side): ระบบบันทึก Token แล้ว การส่ง Alert ต้องเชื่อมกับเซิร์ฟเวอร์ Backend หรือบอทแจ้งเตือน`, "info");
 }
 
 function showToast(msg, type = 'info') {
@@ -1059,10 +1237,16 @@ async function loadDateGrid(origin, destination, centerDate, returnDate, adults)
     try {
         const retParam = returnDate ? `&return_date=${returnDate}` : "";
         const res = await fetch(`/api/price-grid?origin=${origin}&destination=${destination}&center_date=${centerDate}&adults=${adults}&days=9${retParam}`);
+        if (!res.ok) throw new Error("API not available");
         const data = await res.json();
         renderDateGrid(data.grid || [], origin, destination, returnDate, adults);
     } catch (e) {
-        strip.innerHTML = `<div class="text-xs text-slate-400 py-3 px-4">ไม่สามารถโหลดราคาวันใกล้เคียงได้</div>`;
+        if (typeof fetchPriceGridClient === "function") {
+            const grid = fetchPriceGridClient(origin, destination, centerDate, returnDate, adults, 9);
+            renderDateGrid(grid, origin, destination, returnDate, adults);
+        } else {
+            strip.innerHTML = `<div class="text-xs text-slate-400 py-3 px-4">ไม่สามารถโหลดราคาวันใกล้เคียงได้</div>`;
+        }
     }
 }
 
@@ -1210,11 +1394,17 @@ async function loadTimeSlots(idx) {
         const retParam = q?.return_date ? `&return_date=${q.return_date}` : "";
         const url = `/api/time-slots?airline=${encodeURIComponent(flight.airline)}&origin=${q.origin}&destination=${q.destination}&departure_date=${q.departure_date}&adults=${q.adults || 1}${retParam}`;
         const res = await fetch(url);
+        if (!res.ok) throw new Error("API not available");
         const data = await res.json();
         renderTimeSlots(idx, data.slots || []);
     } catch (e) {
-        document.getElementById("timeslots-grid").innerHTML =
-            `<div class="text-center py-8 text-red-500 text-sm">ไม่สามารถโหลดตารางเวลาได้</div>`;
+        if (typeof getTimeSlotsClient === "function") {
+            const slots = getTimeSlotsClient(flight.airline, q.origin, q.destination, q.departure_date, q.return_date, q.adults || 1);
+            renderTimeSlots(idx, slots);
+        } else {
+            document.getElementById("timeslots-grid").innerHTML =
+                `<div class="text-center py-8 text-red-500 text-sm">ไม่สามารถโหลดตารางเวลาได้</div>`;
+        }
     }
 }
 

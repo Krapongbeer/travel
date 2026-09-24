@@ -491,13 +491,17 @@ async def test_alert(req: TestAlertRequest, db: Session = Depends(get_db)):
 # Serve Frontend static assets & UI
 frontend_path = BASE_DIR / "frontend"
 if frontend_path.exists():
+    app.mount("/frontend", StaticFiles(directory=str(frontend_path)), name="frontend")
     app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
 
 @app.get("/")
 def serve_index():
-    index_file = BASE_DIR / "frontend" / "index.html"
-    if index_file.exists():
-        return FileResponse(str(index_file))
+    root_index = BASE_DIR / "index.html"
+    if root_index.exists():
+        return FileResponse(str(root_index))
+    frontend_index = BASE_DIR / "frontend" / "index.html"
+    if frontend_index.exists():
+        return FileResponse(str(frontend_index))
     return {"message": "AirPrice API is running. Frontend not found."}
 
 if __name__ == "__main__":
