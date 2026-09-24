@@ -542,63 +542,122 @@
         </div>
     </div>
 
-    <!-- Modal: Auto-Fill Assistant Action -->
-    <div id="modal-autofill-guide" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4">
+    <!-- Modal: Booking & Instant Checkout Portal -->
+    <div id="modal-autofill-guide" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-xl w-full p-5 sm:p-6 space-y-4 max-h-[95vh] overflow-y-auto">
+            <!-- Header -->
             <div class="flex items-center justify-between border-b pb-3">
-                <h3 class="font-bold text-slate-800 text-base flex items-center">
-                    <i class="fa-solid fa-wand-magic-sparkles text-amber-500 mr-2"></i> ผู้ช่วย Auto-Fill กรอกข้อมูลอัตโนมัติ
-                </h3>
-                <button onclick="closeAutoFillModal()" class="text-slate-400 hover:text-slate-600">
-                    <i class="fa-solid fa-xmark text-lg"></i>
+                <div>
+                    <h3 class="font-black text-slate-800 text-base sm:text-lg flex items-center">
+                        <i class="fa-solid fa-credit-card text-emerald-500 mr-2"></i> สรุปการจอง & ชำระเงินออกตั๋ว
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5">เลือกช่องทางชำระเงินและออกตั๋วเครื่องบินตัวจริงทันที</p>
+                </div>
+                <button onclick="closeAutoFillModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500">
+                    <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
 
-            <div class="space-y-3.5 text-xs text-slate-600">
-                <div class="p-3.5 bg-blue-50/80 rounded-xl border border-blue-200 text-blue-900 space-y-1">
-                    <div class="font-bold flex items-center"><i class="fa-solid fa-circle-check text-blue-600 mr-1.5"></i> ข้อมูลผู้โดยสารพร้อมกรอก:</div>
-                    <div id="modal-pax-summary" class="text-[11px] text-blue-700">-</div>
+            <!-- Flight Selected Summary Card -->
+            <div class="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 text-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span id="checkout-airline-tag" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white">เที่ยวบิน</span>
+                    <span id="checkout-total-price" class="text-xl sm:text-2xl font-black text-blue-900">- THB</span>
                 </div>
-                <!-- Security notice -->
-                <div class="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 flex items-center space-x-2">
-                    <i class="fa-solid fa-lock text-emerald-600"></i>
-                    <span class="text-[11px]">ข้อมูลพาสปอร์ตถูก <strong>เข้ารหัส AES-256 (Fernet)</strong> ก่อนบันทึก และจะถูกถอดรหัสเฉพาะตอนกรอกเท่านั้น</span>
+                <div class="flex items-center justify-between text-xs sm:text-sm font-bold text-slate-700 pt-1">
+                    <div id="checkout-route-text">BKK → NRT</div>
+                    <div id="checkout-time-text" class="text-slate-900 font-black">-</div>
                 </div>
-                <!-- Hidden anchor for URL ref -->
-                <a id="modal-open-booking-btn" href="#" class="hidden"></a>
-
-                <div class="space-y-2">
-                    <div class="font-bold text-slate-800">🤖 วิธีการทำงาน Auto-Fill:</div>
-                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                        <div class="flex items-start space-x-2">
-                            <span class="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center flex-shrink-0 text-[10px]">1</span>
-                            <span>กดปุ่ม <strong>"🤖 เปิดหน้าจอง + Auto-Fill ทันที!"</strong> — ระบบจะเปิดหน้าจองตั๋วและ copy Script ไว้ใน Clipboard อัตโนมัติ</span>
-                        </div>
-                        <div class="flex items-start space-x-2">
-                            <span class="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center flex-shrink-0 text-[10px]">2</span>
-                            <span>เมื่อถึงหน้ากรอกข้อมูลผู้โดยสาร เปิด Console (กด <strong>F12</strong> → Console) แล้ว <strong>Ctrl+V</strong> วาง Script และกด Enter</span>
-                        </div>
-                        <div class="flex items-start space-x-2">
-                            <span class="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center flex-shrink-0 text-[10px]">3</span>
-                            <span>หรือใช้ <strong>Bookmarklet</strong> (ลากปุ่มจากแท็บ "ผู้ช่วยจอง" ไปวางบน Bookmark Bar) — คลิก 1 ครั้งกรอกข้อมูลทั้งหมดทันที!</span>
-                        </div>
-                    </div>
-                </div>
-
+                <div id="checkout-date-text" class="text-xs text-slate-500">-</div>
             </div>
 
-            <div class="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t">
-                <button onclick="copyCurrentScript()" class="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center space-x-1">
-                    <i class="fa-solid fa-copy"></i>
-                    <span>คัดลอก Script (Console)</span>
-                </button>
-                <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
-                    <button type="button" onclick="closeAutoFillModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">ปิด</button>
-                    <button onclick="openBookingAndAutoFill()" class="px-5 py-2.5 text-xs font-black bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-md transition flex items-center space-x-1.5">
-                        <i class="fa-solid fa-rocket"></i>
-                        <span>🤖 เปิดหน้าจอง + Auto-Fill ทันที!</span>
+            <!-- Passengers Section -->
+            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-slate-700 flex items-center">
+                        <i class="fa-solid fa-users text-blue-500 mr-1.5"></i> ข้อมูลผู้โดยสารสำหรับออกตั๋ว:
+                    </span>
+                    <button onclick="copyPassengerQuickText()" class="text-xs px-2.5 py-1 bg-white hover:bg-slate-100 text-blue-600 font-bold rounded-lg border border-slate-300 transition flex items-center space-x-1 shadow-2xs">
+                        <i class="fa-solid fa-copy"></i>
+                        <span>คัดลอกข้อมูลผู้โดยสาร</span>
                     </button>
                 </div>
+                <div id="modal-pax-summary" class="text-slate-600 font-medium bg-white p-2.5 rounded-lg border border-slate-200 text-[11px] leading-relaxed">
+                    -
+                </div>
+            </div>
+
+            <!-- Instant Booking & Payment Channels -->
+            <div class="space-y-2.5">
+                <div class="text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>💳 ช่องทางชำระเงินและรับตั๋วตัวจริง:</span>
+                    <span class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">ออกตั๋ว PNR ทันที</span>
+                </div>
+
+                <!-- Channel 1: Trip.com (Instant Payment) -->
+                <button onclick="proceedToCheckout('trip')" class="w-full p-3.5 rounded-xl border-2 border-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/80 transition text-left flex items-center justify-between group shadow-xs">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-white border border-emerald-200 flex items-center justify-center text-lg text-emerald-600 flex-shrink-0 shadow-2xs">
+                            <i class="fa-solid fa-qrcode"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center space-x-1.5">
+                                <span class="font-black text-slate-800 text-sm">Trip.com (แนะนำที่สุด)</span>
+                                <span class="text-[10px] bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded-full">ชำระเงินได้ทันที</span>
+                            </div>
+                            <div class="text-xs text-slate-500 mt-0.5">
+                                รองรับ <span class="font-bold text-slate-700">Thai QR PromptPay</span>, บัตรเครดิต/เดบิต, TrueMoney (ตั๋วออกใน 5 นาที)
+                            </div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-arrow-right text-emerald-600 group-hover:translate-x-1 transition text-sm"></i>
+                </button>
+
+                <!-- Channel 2: Official Airline Direct -->
+                <button onclick="proceedToCheckout('airline')" class="w-full p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-blue-50/60 transition text-left flex items-center justify-between group">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-lg text-blue-600 flex-shrink-0">
+                            <i class="fa-solid fa-plane-departure"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-slate-800 text-sm" id="checkout-airline-name">เว็บตรงของสายการบิน</div>
+                            <div class="text-xs text-slate-500 mt-0.5">จองตรงกับสายการบิน สะสมไมล์ / ตัดบัตรเครดิตตรง</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-arrow-right text-slate-400 group-hover:translate-x-1 transition text-sm"></i>
+                </button>
+
+                <!-- Channel 3: Google Flights -->
+                <button onclick="proceedToCheckout('google')" class="w-full p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition text-left flex items-center justify-between group">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-lg text-slate-600 flex-shrink-0">
+                            <i class="fa-brands fa-google"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-slate-800 text-sm">Google Flights / ตัวแทนทั้งหมด</div>
+                            <div class="text-xs text-slate-500 mt-0.5">เปรียบเทียบเอเจนซี่และพันธมิตรทุกเจ้าที่เปิดขาย</div>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-arrow-right text-slate-400 group-hover:translate-x-1 transition text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Disclaimer Notice -->
+            <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed flex items-start space-x-2">
+                <i class="fa-solid fa-shield-halved text-amber-600 text-sm mt-0.5 flex-shrink-0"></i>
+                <div>
+                    <strong>ทำไมระบบถึงส่งต่อไปชำระเงินกับช่องทางข้างต้น?</strong>
+                    การออกตั๋วเครื่องบินพาณิชย์สากลต้องออกรหัส PNR ผ่านระบบ IATA และศูนย์ชำระเงินที่ได้รับอนุญาตถูกต้องตามกฎหมาย เพื่อความปลอดภัยของข้อมูลบัตรเครดิต และการันตีว่าท่านจะได้รับตั๋วเครื่องบินตัวจริงแน่นอน 100%
+                </div>
+            </div>
+
+            <!-- Footer Buttons -->
+            <div class="flex items-center justify-between pt-2 border-t text-xs">
+                <button onclick="copyCurrentScript()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-lg transition flex items-center space-x-1">
+                    <i class="fa-solid fa-code"></i>
+                    <span>คัดลอก Auto-Fill Script</span>
+                </button>
+                <button onclick="closeAutoFillModal()" class="px-4 py-2 font-bold text-slate-500 hover:bg-slate-100 rounded-lg">ปิด</button>
             </div>
         </div>
     </div>

@@ -353,11 +353,11 @@ function renderOffers(offers, pax = 1) {
                             <i class="fa-solid fa-check"></i>
                             <span>เลือกเที่ยวบินนี้</span>
                         </button>
-                        <!-- Book Now (prefilled URL) -->
-                        <a href="${flight.booking_url}" target="_blank" rel="noopener" title="✅ ข้อมูล origin/dest/วันที่ถูกกรอกล่วงหน้าแล้ว" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-1.5">
-                            <i class="fa-solid fa-rocket"></i>
-                            <span>จองทันที</span>
-                        </a>
+                        <!-- Book & Checkout CTA -->
+                        <button onclick="openBookingCheckoutModal(${idx})" title="เลือกช่องทางชำระเงินและออกตั๋วทันที" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-1.5 cursor-pointer">
+                            <i class="fa-solid fa-credit-card"></i>
+                            <span>จองและจ่ายเงิน</span>
+                        </button>
                     </div>
                 </div>
 
@@ -955,79 +955,137 @@ async function deletePassenger(id) {
 }
 
 
-async function launchAutoBooking(bookingUrl) {
+async function openBookingCheckoutModal(idx) {
+    if (idx === undefined || idx === null) {
+        idx = selectedFlightIdx !== null ? selectedFlightIdx : 0;
+    }
+    const flight = currentOffers[idx];
+    if (!flight) return;
+
+    selectedFlightIdx = idx;
+    selectFlight(idx);
+
+    const q = currentSearchQuery;
+    const pax = q?.adults || 1;
+    const totalPrice = flight.price_total || (flight.price * pax);
+
+    // Update flight summary in modal
+    const airlineTag = document.getElementById("checkout-airline-tag");
+    if (airlineTag) airlineTag.textContent = `${flight.airline} (${flight.flight_number || 'Direct'})`;
+
+    const totalEl = document.getElementById("checkout-total-price");
+    if (totalEl) totalEl.textContent = `${totalPrice.toLocaleString()} THB`;
+
+    const routeEl = document.getElementById("checkout-route-text");
+    if (routeEl) routeEl.textContent = `${flight.origin} ✈ ${flight.destination} (${pax} ผู้โดยสาร)`;
+
+    const timeEl = document.getElementById("checkout-time-text");
+    if (timeEl) timeEl.textContent = `${flight.departure_time} → ${flight.arrival_time} (${flight.duration})`;
+
+    const dateEl = document.getElementById("checkout-date-text");
+    if (dateEl) dateEl.textContent = `เดินทาง: ${flight.departure_date}${flight.return_date ? ` · กลับ: ${flight.return_date}` : ' (เที่ยวเดียว)'}`;
+
+    const airlineBtn = document.getElementById("checkout-airline-name");
+    if (airlineBtn) airlineBtn.textContent = `เว็บตรงสายการบิน ${flight.airline}`;
+
+    // Get passengers (API or LocalStorage)
+    let passList = [];
     try {
-        // 1. Fetch passengers and autofill script
-        const [pasRes, scriptRes] = await Promise.all([
-            fetch("/api/passengers"),
-            fetch("/api/autobook/script")
-        ]);
-        const passList = await pasRes.json();
-        const scriptData = await scriptRes.json();
+        const res = await fetch("/api/passengers");
+        if (res.ok) passList = await res.json();
+    } catch (e) {}
 
-        const summary = passList.length > 0
-            ? passList.map((p, i) => `#${i+1} ${p.first_name} ${p.last_name} (${p.passport_number || 'ไม่ระบุ'})`).join(' • ')
-            : "ยังไม่มีข้อมูลผู้โดยสาร (กรุณาเพิ่มก่อนจอง)";
+    if (passList.length === 0) {
+        passList = getLocalPassengers();
+    }
 
-        // 2. Store the autofill script in sessionStorage for the relay injector to pick up
-        sessionStorage.setItem('airprice_autofill_script', scriptData.script || '');
-        sessionStorage.setItem('airprice_target_url', bookingUrl);
-
-        // 3. Show confirmation modal (non-blocking)
-        document.getElementById("modal-pax-summary").textContent = summary;
-        document.getElementById("modal-open-booking-btn").href = bookingUrl;
-        document.getElementById("modal-autofill-guide").classList.remove("hidden");
-
-        // 4. Copy script to clipboard too (as a fallback)
-        if (scriptData.script) {
-            try { navigator.clipboard.writeText(scriptData.script); } catch (e) {}
+    const paxSummaryEl = document.getElementById("modal-pax-summary");
+    if (paxSummaryEl) {
+        if (passList.length === 0) {
+            paxSummaryEl.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="text-amber-700 font-bold">⚠️ ยังไม่มีข้อมูลผู้โดยสารในระบบ</span>
+                    <button onclick="closeAutoFillModal(); switchTab('passengers')" class="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded font-bold text-[10px]">
+                        + เพิ่มข้อมูลผู้โดยสาร
+                    </button>
+                </div>
+                <div class="mt-1 text-slate-500 text-[11px]">หากไม่ได้เพิ่ม สามารถกดไปหน้าชำระเงินและพิมพ์ชื่อบนเว็บออกตั๋วได้เช่นกัน</div>
+            `;
+        } else {
+            const summary = passList.map((p, i) => `#${i+1} <strong>${p.first_name} ${p.last_name}</strong> (${p.nationality || 'THAI'} · พาสปอร์ต: ${p.passport_number || 'ไม่ระบุ'})`).join('<br>');
+            paxSummaryEl.innerHTML = summary;
         }
+    }
 
-        showToast(`🤖 เปิดหน้าจองและเตรียม Auto-Fill สำหรับ ${passList.length || 1} ท่านแล้ว!`, "success");
-    } catch (e) {
-        // Fallback: just open the booking page
-        window.open(bookingUrl, "_blank");
+    // Prepare scripts in session
+    let scriptCode = "";
+    if (typeof generateClientAutofillScript === "function") {
+        scriptCode = generateClientAutofillScript(passList);
+    }
+    sessionStorage.setItem('airprice_autofill_script', scriptCode);
+    sessionStorage.setItem('airprice_target_url', flight.booking_url);
+    window.currentCheckoutFlight = flight;
+
+    // Show modal
+    document.getElementById("modal-autofill-guide").classList.remove("hidden");
+}
+
+function proceedToCheckout(channel) {
+    const flight = window.currentCheckoutFlight || (selectedFlightIdx !== null ? currentOffers[selectedFlightIdx] : null);
+    if (!flight) return;
+
+    let targetUrl = "";
+    if (channel === "trip") {
+        targetUrl = flight.trip_url || (typeof generateBookingLinksClient === "function" ? generateBookingLinksClient(flight.origin, flight.destination, flight.departure_date, flight.return_date, flight.total_passengers || 1).trip_com : flight.booking_url);
+    } else if (channel === "google") {
+        targetUrl = (typeof generateBookingLinksClient === "function" ? generateBookingLinksClient(flight.origin, flight.destination, flight.departure_date, flight.return_date, flight.total_passengers || 1).google_flights : flight.booking_url);
+    } else {
+        targetUrl = flight.official_url || flight.booking_url;
+    }
+
+    // Auto-copy passenger data to clipboard for easy pasting
+    copyPassengerQuickText(false);
+
+    // Open booking page directly (not inside setTimeout or async, avoiding popup blocker)
+    window.open(targetUrl, '_blank');
+    closeAutoFillModal();
+    showToast("🚀 กำลังพาไปหน้าชำระเงิน และคัดลอกข้อมูลผู้โดยสารเรียบร้อย!", "success");
+}
+
+function copyPassengerQuickText(showNotification = true) {
+    const list = getLocalPassengers();
+    if (!list || list.length === 0) {
+        if (showNotification) showToast("ยังไม่มีข้อมูลผู้โดยสาร กรุณาเพิ่มข้อมูลก่อน", "warning");
+        return;
+    }
+
+    const text = list.map((p, idx) => {
+        return `[ผู้โดยสาร ${idx + 1}]
+ชื่อ-นามสกุล: ${p.title || ''} ${p.first_name} ${p.last_name}
+วันเกิด: ${p.date_of_birth || '-'}
+เพศ: ${p.gender || '-'}
+สัญชาติ: ${p.nationality || 'THAI'}
+เลขพาสปอร์ต: ${p.passport_number || '-'}
+วันหมดอายุพาสปอร์ต: ${p.passport_expiry || '-'}
+อีเมล: ${p.email || '-'}
+เบอร์โทร: ${p.phone_number || '-'}`;
+    }).join("\n\n");
+
+    try {
+        navigator.clipboard.writeText(text);
+        if (showNotification) {
+            showToast("📋 คัดลอกข้อมูลผู้โดยสารทั้งหมดลง Clipboard แล้ว!", "success");
+        }
+    } catch (e) {}
+}
+
+async function launchAutoBooking(bookingUrl) {
+    if (selectedFlightIdx !== null) {
+        openBookingCheckoutModal(selectedFlightIdx);
+    } else {
+        openBookingCheckoutModal(0);
     }
 }
-
-function openBookingAndAutoFill() {
-    const bookingUrl = sessionStorage.getItem('airprice_target_url') || document.getElementById("modal-open-booking-btn").href;
-    const script = sessionStorage.getItem('airprice_autofill_script') || '';
-
-    // Build a relay HTML page that:
-    //   1. Redirects to the booking URL in a new tab
-    //   2. Tries to inject the autofill script via window.opener (same-origin only)
-    //   For cross-origin (external OTA), script must be pasted via bookmarklet
-    const relayHtml = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>AirPrice Auto-Fill</title>
-<style>body{font-family:sans-serif;padding:40px;background:#0f172a;color:#e2e8f0}
-.card{background:#1e293b;border-radius:16px;padding:32px;max-width:480px;margin:auto}
-h2{color:#38bdf8}p{color:#94a3b8}
-button{background:#2563eb;color:#fff;border:none;padding:12px 24px;border-radius:10px;font-size:15px;cursor:pointer;font-weight:bold;margin-top:16px;width:100%}
-button:hover{background:#1d4ed8}
-.badge{display:inline-block;background:#059669;color:#fff;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:bold;margin-bottom:12px}
-</style></head>
-<body>
-<div class="card">
-  <div class="badge">✈️ AirPrice Auto-Fill</div>
-  <h2>กำลังเปิดหน้าจองตั๋ว...</h2>
-  <p>ระบบกำลังพาไปหน้าจองตั๋ว หากไม่มีการเปลี่ยนหน้า <a href="${bookingUrl}" target="_blank" style="color:#38bdf8">คลิกที่นี่</a></p>
-  <p style="margin-top:16px;font-size:13px;color:#64748b">📋 Script Auto-Fill ถูก copy ไว้ใน Clipboard แล้ว<br>เมื่อถึงหน้ากรอกข้อมูล ให้วาง Script ใน Console (F12 → Console → Ctrl+V → Enter)</p>
-  <button onclick="window.close()">ปิดหน้านี้</button>
-</div>
-<script>
-// Auto open the booking page
-window.open(${JSON.stringify(bookingUrl)}, '_blank');
-<\/script>
-</body></html>`;
-
-    const blob = new Blob([relayHtml], { type: 'text/html' });
-    const relayUrl = URL.createObjectURL(blob);
-    window.open(relayUrl, '_blank');
-    closeAutoFillModal();
-}
-
 
 function closeAutoFillModal() {
     document.getElementById("modal-autofill-guide").classList.add("hidden");
@@ -1361,18 +1419,12 @@ function clearSelectedFlight() {
 
 function bookSelected() {
     if (selectedFlightIdx === null) return;
-    const flight = currentOffers[selectedFlightIdx];
-    if (!flight) return;
-    // Open the prefilled airline URL
-    window.open(flight.booking_url, "_blank");
-    showToast("🚀 เปิดหน้าจองพร้อมข้อมูลกรอกล่วงหน้าแล้ว!", "success");
+    openBookingCheckoutModal(selectedFlightIdx);
 }
 
 function autoFillSelected() {
     if (selectedFlightIdx === null) return;
-    const flight = currentOffers[selectedFlightIdx];
-    if (!flight) return;
-    launchAutoBooking(flight.booking_url);
+    openBookingCheckoutModal(selectedFlightIdx);
 }
 
 // ============================================================
@@ -1409,6 +1461,7 @@ async function loadTimeSlots(idx) {
 }
 
 function renderTimeSlots(offerIdx, slots) {
+    window.currentTimeSlots = slots || [];
     const grid = document.getElementById("timeslots-grid");
     if (!slots.length) {
         grid.innerHTML = `<div class="text-center py-8 text-slate-400 text-sm">ไม่พบข้อมูลตารางเวลา</div>`;
@@ -1446,7 +1499,7 @@ function renderTimeSlots(offerIdx, slots) {
                     <div class="text-right">
                         <div class="text-xl font-black ${isCheapest ? 'text-emerald-600' : 'text-slate-800'}">${s.price.toLocaleString()} ฿</div>
                         ${pax > 1 ? `<div class="text-[11px] text-slate-400">${s.price_per_person.toLocaleString()} ฿/คน</div>` : ''}
-                        <div class="mt-1 text-[11px] font-bold text-blue-600">คลิกเพื่อเลือก →</div>
+                        <div class="mt-1 text-[11px] font-bold text-blue-600">คลิกเพื่อเลือกเวลานี้ →</div>
                     </div>
                 </div>
             </button>
@@ -1455,15 +1508,42 @@ function renderTimeSlots(offerIdx, slots) {
 }
 
 function selectTimeSlot(offerIdx, slotIdx) {
-    // This would update the selected offer's time/price in a real system.
-    // For now: update the offer display and close the modal.
     const flight = currentOffers[offerIdx];
-    if (!flight) return;
+    if (!flight || !window.currentTimeSlots || !window.currentTimeSlots[slotIdx]) return;
+    const slot = window.currentTimeSlots[slotIdx];
 
-    // Re-select this flight with the chosen slot (visual feedback)
+    const pax = currentSearchQuery?.adults || 1;
+    const pricePerPerson = slot.price_per_person || Math.round(slot.price / pax);
+    const totalPrice = slot.price;
+
+    // Immediately update flight model
+    flight.departure_time = slot.departure_time;
+    flight.arrival_time = slot.arrival_time;
+    flight.duration = slot.duration;
+    flight.flight_number = slot.flight_number;
+    flight.price = pricePerPerson;
+    flight.price_per_person = pricePerPerson;
+    flight.price_total = totalPrice;
+
+    if (!flight.outbound) {
+        flight.outbound = {};
+    }
+    flight.outbound.departure_time = slot.departure_time;
+    flight.outbound.arrival_time = slot.arrival_time;
+    flight.outbound.duration = slot.duration;
+    flight.outbound.flight_number = slot.flight_number;
+
+    if (slot.return_flight_number && flight.inbound) {
+        flight.inbound.departure_time = slot.return_departure_time;
+        flight.inbound.arrival_time = slot.return_arrival_time;
+        flight.inbound.flight_number = slot.return_flight_number;
+    }
+
+    // Close drawer and re-render flight cards with updated time & price
     closeTimeSlotsModal();
+    renderOffers(currentOffers);
     selectFlight(offerIdx);
-    showToast(`✅ เลือกช่วงเวลาแล้ว! กด "จองเลย!" หรือ "Auto-Fill" ได้เลย`, "success");
+    showToast(`✅ เปลี่ยนเที่ยวบินเป็น ${slot.flight_number} เวลา ${slot.departure_time} - ${slot.arrival_time} ยอด ${totalPrice.toLocaleString()} ฿ เรียบร้อย!`, "success");
 }
 
 function closeTimeSlotsModal() {

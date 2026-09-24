@@ -274,7 +274,7 @@ function generateAirlineDirectUrlClient(airlineName, airlineCode, officialUrl, o
         return `https://www.flyscoot.com/th/book/flights?originIata=${origin}&destinationIata=${destination}&outboundDate=${d8}${rParam}&adult=${adults}&child=0&infant=0&tripType=${trip}`;
     }
     if (a.includes("VietJet") || a.includes("Vietjet")) {
-        const rParam = retDate ? `&returnDate=${d8}` : "";
+        const rParam = retDate ? `&returnDate=${r8}` : "";
         return `https://th.vietjetair.com/en?departureStation=${origin}&arrivalStation=${destination}&departureDate=${d8}${rParam}&adultCount=${adults}&childCount=0&infantCount=0&isRoundTrip=${retDate ? 'true' : 'false'}`;
     }
     if (a.includes("Thai Airways")) {
