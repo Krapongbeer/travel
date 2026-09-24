@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirPrice - ระบบค้นหา เปรียบเทียบ และแจ้งเตือนตั๋วเครื่องบินราคาถูกในเอเชีย</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Top Navigation Bar -->
+    <header class="gradient-hero text-white sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-xl text-blue-400">
+                        <i class="fa-solid fa-plane-departure"></i>
+                    </div>
+                    <div>
+                        <span class="text-xl font-black tracking-tight text-white">AirPrice <span class="text-amber-400 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/30 ml-1">ASIA PRO</span></span>
+                        <p class="text-xs text-slate-300">ค้นหาตั๋วถูก • แจ้งเตือน Telegram/LINE • ระบบช่วยจอง</p>
+                    </div>
+                </div>
+
+                <!-- Tabs Navigation -->
+                <nav class="flex space-x-1 sm:space-x-2">
+                    <button onclick="switchTab('search')" id="tab-search" class="px-3 py-2 rounded-lg text-sm font-semibold transition bg-blue-600 text-white shadow-sm flex items-center space-x-1.5">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <span class="hidden sm:inline">ค้นหาตั๋ว</span>
+                    </button>
+                    <button onclick="switchTab('watchlist')" id="tab-watchlist" class="px-3 py-2 rounded-lg text-sm font-semibold transition text-slate-300 hover:text-white hover:bg-slate-800/60 flex items-center space-x-1.5">
+                        <i class="fa-solid fa-bell"></i>
+                        <span class="hidden sm:inline">รายการเฝ้าราคา</span>
+                        <span id="watchlist-badge" class="hidden text-xs bg-amber-500 text-slate-900 px-1.5 py-0.2 rounded-full font-bold">0</span>
+                    </button>
+                    <button onclick="switchTab('passenger')" id="tab-passenger" class="px-3 py-2 rounded-lg text-sm font-semibold transition text-slate-300 hover:text-white hover:bg-slate-800/60 flex items-center space-x-1.5">
+                        <i class="fa-solid fa-user-astronaut"></i>
+                        <span class="hidden sm:inline">ผู้ช่วยจอง (Auto-Fill)</span>
+                    </button>
+                    <button onclick="switchTab('settings')" id="tab-settings" class="px-3 py-2 rounded-lg text-sm font-semibold transition text-slate-300 hover:text-white hover:bg-slate-800/60 flex items-center space-x-1.5">
+                        <i class="fa-solid fa-gear"></i>
+                        <span class="hidden sm:inline">ตั้งค่าแจ้งเตือน</span>
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
+
+        <!-- ================= TAB 1: SEARCH & RESULTS ================= -->
+        <section id="view-search" class="space-y-6">
+            <!-- Search Box Card -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5 sm:p-7">
+                <form id="search-form" onsubmit="handleSearch(event)" class="space-y-4">
+                    <!-- Trip Type selector -->
+                    <div class="flex items-center space-x-4 border-b border-slate-100 pb-3">
+                        <label class="inline-flex items-center text-sm font-medium text-slate-700 cursor-pointer">
+                            <input type="radio" name="trip_type" value="round" checked onchange="toggleReturnType(true)" class="text-blue-600 focus:ring-blue-500">
+                            <span class="ml-2">✈️ ไป-กลับ (Round-trip)</span>
+                        </label>
+                        <label class="inline-flex items-center text-sm font-medium text-slate-700 cursor-pointer">
+                            <input type="radio" name="trip_type" value="oneway" onchange="toggleReturnType(false)" class="text-blue-600 focus:ring-blue-500">
+                            <span class="ml-2">➡️ เที่ยวเดียว (One-way)</span>
+                        </label>
+                    </div>
+
+                    <!-- Search Inputs Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                        <!-- Origin -->
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5"><i class="fa-solid fa-location-dot text-blue-500 mr-1"></i> สนามบินต้นทาง</label>
+                            <select id="origin-select" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="BKK" selected>🇹🇭 กรุงเทพฯ (BKK)</option>
+                                <option value="DMK">🇹🇭 กรุงเทพฯ (DMK)</option>
+                                <option value="CNX">🇹🇭 เชียงใหม่ (CNX)</option>
+                                <option value="HKT">🇹🇭 ภูเก็ต (HKT)</option>
+                            </select>
+                        </div>
+
+                        <!-- Destination -->
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5"><i class="fa-solid fa-plane-arrival text-emerald-500 mr-1"></i> ปลายทาง</label>
+                            <select id="dest-select" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+
+                        <!-- Departure Date -->
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5"><i class="fa-solid fa-calendar-days text-slate-500 mr-1"></i> วันเดินทางไป</label>
+                            <input type="date" id="dep-date" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Return Date -->
+                        <div id="ret-date-container">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5"><i class="fa-solid fa-calendar-check text-slate-500 mr-1"></i> วันเดินทางกลับ</label>
+                            <input type="date" id="ret-date" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Passengers Count -->
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5"><i class="fa-solid fa-users text-indigo-500 mr-1"></i> จำนวนผู้โดยสาร</label>
+                            <select id="pax-select" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500">
+                                <option value="1" selected>👤 1 ท่าน (ผู้ใหญ่ 1)</option>
+                                <option value="2">👥 2 ท่าน (ผู้ใหญ่ 2)</option>
+                                <option value="3">👨‍👩‍👦 3 ท่าน (ผู้ใหญ่ 3)</option>
+                                <option value="4">👨‍👩‍👧‍👦 4 ท่าน (ผู้ใหญ่ 4)</option>
+                                <option value="5">🌟 5 ท่าน (กลุ่ม/ครอบครัว)</option>
+                            </select>
+                        </div>
+                    </div>
+
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-col sm:flex-row items-center justify-between pt-2 gap-3">
+                        <!-- Quick presets -->
+                        <div class="flex items-center flex-wrap gap-1.5 text-xs text-slate-500">
+                            <span class="font-medium mr-1">🔥 ยอดนิยม:</span>
+                            <button type="button" onclick="setPreset('BKK', 'NRT')" class="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition font-medium">🇯🇵 โตเกียว (NRT)</button>
+                            <button type="button" onclick="setPreset('BKK', 'KIX')" class="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition font-medium">🇯🇵 โอซาก้า (KIX)</button>
+                            <button type="button" onclick="setPreset('BKK', 'ICN')" class="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition font-medium">🇰🇷 โซล (ICN)</button>
+                            <button type="button" onclick="setPreset('BKK', 'TPE')" class="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition font-medium">🇹🇼 ไทเป (TPE)</button>
+                            <button type="button" onclick="setPreset('DMK', 'SIN')" class="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition font-medium">🇸🇬 สิงคโปร์ (SIN)</button>
+                            <button type="button" onclick="setPreset('DMK', 'DAD')" class="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition font-medium">🇻🇳 ดานัง (DAD)</button>
+                        </div>
+
+                        <!-- Search button -->
+                        <button type="submit" id="search-btn" class="w-full sm:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center space-x-2">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <span>ค้นหาตั๋วถูกสุด</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="loading-spinner" class="hidden py-16 text-center space-y-4">
+                <div class="inline-block animate-spin text-4xl text-blue-600">
+                    <i class="fa-solid fa-spinner"></i>
+                </div>
+                <p class="text-sm font-medium text-slate-600">กำลังสแกนและเปรียบเทียบราคาตั๋วเครื่องบินในเอเชีย...</p>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-wrapper" class="hidden space-y-4">
+
+                <!-- ===== DATE PRICE GRID STRIP ===== -->
+                <div id="date-grid-container" class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-3 overflow-hidden">
+                    <div class="flex items-center justify-between mb-2 px-1">
+                        <span class="text-xs font-bold text-slate-600">📅 ราคาวันใกล้เคียง (คลิกเพื่อเปลี่ยนวัน)</span>
+                        <span class="text-[11px] text-slate-400">ราคาต่ำสุดต่อท่าน (THB)</span>
+                    </div>
+                    <div id="date-grid-strip" class="flex items-stretch gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                        <!-- Populated by loadDateGrid() -->
+                        <div class="text-xs text-slate-400 py-3 px-4 animate-pulse">กำลังโหลดราคา...</div>
+                    </div>
+                </div>
+
+                <!-- Summary Stats Bar -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="bg-gradient-to-br from-emerald-500 to-teal-700 text-white p-5 rounded-2xl shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-semibold uppercase tracking-wider text-emerald-100">🔥 ราคาถูกที่สุด</span>
+                            <i class="fa-solid fa-tag text-emerald-200 text-lg"></i>
+                        </div>
+                        <div class="mt-2 text-2xl sm:text-3xl font-black" id="stat-lowest-price">-</div>
+                        <p class="text-xs text-emerald-100 mt-1" id="stat-lowest-airline">-</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">⚡ เที่ยวบินบินตรง</span>
+                            <i class="fa-solid fa-bolt text-amber-500 text-lg"></i>
+                        </div>
+                        <div class="mt-2 text-2xl sm:text-3xl font-black text-slate-800" id="stat-direct-count">-</div>
+                        <p class="text-xs text-slate-500 mt-1">ไม่ต้องแวะพัก ประหยัดเวลา</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">📊 ตัวเลือกทั้งหมด</span>
+                            <i class="fa-solid fa-list-check text-blue-500 text-lg"></i>
+                        </div>
+                        <div class="mt-2 text-2xl sm:text-3xl font-black text-slate-800" id="stat-total-count">-</div>
+                        <div class="mt-1 flex items-center space-x-2">
+                            <button onclick="openTrackModal()" class="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center">
+                                <i class="fa-solid fa-bell mr-1"></i> ตั้งแจ้งเตือนราคานี้
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export & Filter Toolbar -->
+                <div class="bg-white p-4 rounded-xl border border-slate-200/80 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <!-- Filters -->
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs font-bold text-slate-600 flex items-center"><i class="fa-solid fa-filter text-blue-500 mr-1.5"></i>ตัวกรอง:</span>
+                            
+                            <!-- Airline Filter -->
+                            <select id="filter-airline" onchange="applyFilters()" class="text-xs font-semibold bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 transition focus:ring-2 focus:ring-blue-500">
+                                <option value="all">✈️ ทุกสายการบิน</option>
+                            </select>
+
+                            <!-- Stops Filter -->
+                            <select id="filter-stops" onchange="applyFilters()" class="text-xs font-semibold bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 transition focus:ring-2 focus:ring-blue-500">
+                                <option value="all">🌐 ทุกจุดแวะพัก</option>
+                                <option value="0">⚡ เฉพาะบินตรง (Non-stop)</option>
+                                <option value="1">⏱️ แวะพักไม่เกิน 1 จุด</option>
+                            </select>
+
+                            <!-- Departure Time Filter -->
+                            <select id="filter-time" onchange="applyFilters()" class="text-xs font-semibold bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 transition focus:ring-2 focus:ring-blue-500">
+                                <option value="all">🕒 ทุกช่วงเวลาออกเดินทาง</option>
+                                <option value="early">🌙 เช้าตรู่ (00:00 - 06:00)</option>
+                                <option value="morning">🌅 ช่วงเช้า (06:00 - 12:00)</option>
+                                <option value="afternoon">☀️ ช่วงบ่าย (12:00 - 18:00)</option>
+                                <option value="night">🌃 ช่วงค่ำ/ดึก (18:00 - 24:00)</option>
+                            </select>
+
+                            <!-- Airline Type Filter -->
+                            <select id="filter-type" onchange="applyFilters()" class="text-xs font-semibold bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 transition focus:ring-2 focus:ring-blue-500">
+                                <option value="all">🧳 ทุกระดับบริการ</option>
+                                <option value="fullservice">✨ Full Service (รวมกระเป๋า/อาหาร)</option>
+                                <option value="lowcost">🏷️ Low-Cost (ประหยัด)</option>
+                            </select>
+
+                            <!-- Sort By -->
+                            <select id="sort-by" onchange="applyFilters()" class="text-xs font-semibold bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg px-2.5 py-1.5 text-blue-900 transition focus:ring-2 focus:ring-blue-500">
+                                <option value="price_asc">💵 ราคา: ต่ำสุด ➔ สูงสุด</option>
+                                <option value="price_desc">💵 ราคา: สูงสุด ➔ ต่ำสุด</option>
+                                <option value="dep_early">⏰ ออกเดินทาง: เช้า ➔ ดึก</option>
+                                <option value="dep_late">⏰ ออกเดินทาง: ดึก ➔ เช้า</option>
+                                <option value="duration_asc">⚡ เวลาบิน: เร็วที่สุด</option>
+                            </select>
+
+                            <!-- Reset Button -->
+                            <button type="button" onclick="resetFilters()" class="text-xs font-semibold text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
+                                <i class="fa-solid fa-arrow-rotate-left mr-1"></i>รีเซ็ต
+                            </button>
+                        </div>
+
+
+                    <!-- Export Buttons -->
+                    <div class="flex items-center space-x-2">
+                        <button onclick="exportData('excel')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-sm">
+                            <i class="fa-solid fa-file-excel"></i>
+                            <span>Export Excel</span>
+                        </button>
+                        <button onclick="exportData('csv')" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-sm">
+                            <i class="fa-solid fa-file-csv"></i>
+                            <span>Export CSV</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Flight Offers List -->
+                <div id="flight-cards-container" class="space-y-3.5">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Price Trend Chart Section -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base">📈 แนวโน้มและประวัติราคา (Price Trend)</h3>
+                            <p class="text-xs text-slate-500">สถิติราคาต่ำสุดที่ระบบตรวจพบล่าสุดในเส้นทางนี้</p>
+                        </div>
+                        <span class="text-xs font-semibold px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg">THB / คน</span>
+                    </div>
+                    <div class="h-64 w-full">
+                        <canvas id="priceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB 2: WATCHLIST & ALERTS ================= -->
+        <section id="view-watchlist" class="hidden space-y-6">
+            <div class="flex items-center justify-between bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800">🔔 รายการเฝ้าราคาและแจ้งเตือนอัตโนมัติ</h2>
+                    <p class="text-xs text-slate-500">ระบบจะคอยตรวจราคาในเบื้องหลัง และส่งแจ้งเตือนเข้า Telegram/LINE ทันทีที่ราคาลงต่ำกว่าเป้าหมาย</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="checkWatchlistNow()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-rotate"></i>
+                        <span>สแกนราคาตอนนี้</span>
+                    </button>
+                    <button onclick="openTrackModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>เพิ่มการเฝ้าราคา</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="watchlist-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Watchlist items loaded here -->
+            </div>
+        </section>
+
+        <!-- ================= TAB 3: PASSENGER PROFILE & AUTO-FILL ================= -->
+        <section id="view-passenger" class="hidden space-y-6">
+            <!-- Bookmarklet Drag & Drop Banner -->
+            <div class="bg-gradient-to-r from-indigo-600 via-blue-600 to-blue-700 rounded-2xl p-6 text-white shadow-md space-y-3">
+                <div class="flex items-center space-x-2">
+                    <span class="px-2.5 py-0.5 bg-amber-400 text-slate-900 rounded-full text-xs font-black">ฟีเจอร์เด็ด ⚡</span>
+                    <h3 class="font-black text-lg text-white">ปุ่มลัด 1-Click Bookmarklet (กรอกข้อมูลอัตโนมัติบนทุกเว็บ)</h3>
+                </div>
+                <p class="text-xs text-blue-100 leading-relaxed">
+                    ลากปุ่มด้านล่างนี้ไปวางไว้ที่ <strong>แถบบุ๊กมาร์ก (Bookmarks Bar)</strong> ของเบราว์เซอร์ของคุณเพียงครั้งเดียว เมื่อคุณเปิดหน้าเว็บสายการบินใดๆ (AirAsia, Trip.com, Vietjet, การบินไทย ฯลฯ) แค่ <strong>กดคลิกที่บุ๊กมาร์กนี้ 1 ครั้ง</strong> ระบบจะกรอกชื่อ นามสกุล เลขพาสปอร์ต วันเกิด ของทุกคนให้ครบทุกช่องใน 0.1 วินาทีทันที!
+                </p>
+                <div class="pt-2 flex flex-wrap items-center gap-3">
+                    <a id="bookmarklet-link" href="javascript:void(0)" class="cursor-grab px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-xs rounded-xl shadow-lg transition flex items-center space-x-2 border-2 border-white/40">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        <span>✈️ ลากปุ่มนี้ไปวางบน Bookmarks Bar</span>
+                    </a>
+                    <button onclick="copyCurrentScript()" class="px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl transition flex items-center space-x-1.5 border border-white/20">
+                        <i class="fa-solid fa-copy"></i>
+                        <span>คัดลอกโค้ด Script สำหรับ Console</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-800 flex items-center">
+                            <i class="fa-solid fa-user-astronaut text-blue-600 mr-2"></i>
+                            ข้อมูลผู้โดยสารสำหรับระบบช่วยจองอัตโนมัติ (Auto-Fill Assistant)
+                        </h2>
+                        <p class="text-xs text-slate-500 mt-1">
+                            บันทึกข้อมูลของคุณและเพื่อนร่วมทริปไว้ เพื่อใช้กรอกลงในหน้าจองตั๋วอัตโนมัติ
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Passenger Form -->
+                <form id="passenger-form" onsubmit="savePassenger(event)" class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">คำนำหน้า (Title)</label>
+                        <select id="p-title" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                            <option value="Mr">Mr. (นาย)</option>
+                            <option value="Ms">Ms. (นางสาว)</option>
+                            <option value="Mrs">Mrs. (นาง)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">ชื่อภาษาอังกฤษ (First Name) *</label>
+                        <input type="text" id="p-firstname" required placeholder="SOMCHAI" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm uppercase">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">นามสกุลภาษาอังกฤษ (Last Name) *</label>
+                        <input type="text" id="p-lastname" required placeholder="DEEDEE" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm uppercase">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">วันเกิด (Date of Birth) *</label>
+                        <input type="date" id="p-dob" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">เพศ (Gender)</label>
+                        <select id="p-gender" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                            <option value="M">Male (ชาย)</option>
+                            <option value="F">Female (หญิง)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">สัญชาติ (Nationality)</label>
+                        <input type="text" id="p-nationality" value="Thai" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">หมายเลขพาสปอร์ต (Passport No.)</label>
+                        <input type="text" id="p-passport" placeholder="AA1234567" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm uppercase">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">อีเมลสำหรับรับตั๋ว (Email) *</label>
+                        <input type="email" id="p-email" required placeholder="your.email@example.com" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">เบอร์โทรศัพท์ (Phone) *</label>
+                        <input type="tel" id="p-phone" required placeholder="0812345678" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm">
+                    </div>
+
+                    <div class="sm:col-span-2 lg:col-span-3 flex justify-end pt-2">
+                        <button type="submit" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md transition">
+                            💾 บันทึกข้อมูลผู้โดยสาร
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Saved Passengers List -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+                <h3 class="font-bold text-slate-800 text-sm mb-4">📋 ข้อมูลผู้โดยสารที่บันทึกไว้</h3>
+                <div id="passenger-list" class="space-y-3">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB 4: SETTINGS & TOKENS ================= -->
+        <section id="view-settings" class="hidden space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 max-w-3xl mx-auto space-y-6">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800">⚙️ ตั้งค่าระบบแจ้งเตือน (Telegram / LINE / Discord)</h2>
+                    <p class="text-xs text-slate-500 mt-1">ใส่ Token เพื่อรับการแจ้งเตือนตั๋วเครื่องบินราคาหลุดและโปรโมชั่นทันที</p>
+                </div>
+
+                <form id="settings-form" onsubmit="saveSettings(event)" class="space-y-5">
+                    <!-- Telegram -->
+                    <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold text-slate-800 flex items-center">
+                                <i class="fa-brands fa-telegram text-sky-500 text-lg mr-2"></i> Telegram Bot Alert
+                            </span>
+                            <button type="button" onclick="testNotification('telegram')" class="text-xs px-3 py-1 bg-sky-100 hover:bg-sky-200 text-sky-700 font-bold rounded-lg transition">
+                                🔔 ทดสอบส่ง Telegram
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Telegram Bot Token</label>
+                                <input type="text" id="cfg-tg-token" placeholder="123456789:ABCdef..." class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Telegram Chat ID</label>
+                                <input type="text" id="cfg-tg-chat" placeholder="987654321 หรือ @channel" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- LINE Notify -->
+                    <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold text-slate-800 flex items-center">
+                                <i class="fa-brands fa-line text-emerald-500 text-lg mr-2"></i> LINE Notify Token
+                            </span>
+                            <button type="button" onclick="testNotification('line')" class="text-xs px-3 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-bold rounded-lg transition">
+                                🔔 ทดสอบส่ง LINE
+                            </button>
+                        </div>
+                        <div>
+                            <input type="text" id="cfg-line-token" placeholder="ใส่ LINE Notify Token..." class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs">
+                        </div>
+                    </div>
+
+                    <!-- Discord Webhook -->
+                    <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold text-slate-800 flex items-center">
+                                <i class="fa-brands fa-discord text-indigo-500 text-lg mr-2"></i> Discord Webhook URL
+                            </span>
+                            <button type="button" onclick="testNotification('discord')" class="text-xs px-3 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold rounded-lg transition">
+                                🔔 ทดสอบส่ง Discord
+                            </button>
+                        </div>
+                        <div>
+                            <input type="text" id="cfg-discord-url" placeholder="https://discord.com/api/webhooks/..." class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs">
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md transition">
+                            💾 บันทึกการตั้งค่า
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal: Add Watchlist -->
+    <div id="modal-track" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div class="flex items-center justify-between border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center">
+                    <i class="fa-solid fa-bell text-amber-500 mr-2"></i> ตั้งเป้าหมายราคาและแจ้งเตือน
+                </h3>
+                <button onclick="closeTrackModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <form id="track-form" onsubmit="submitWatchlist(event)" class="space-y-4">
+                <div class="p-3 bg-blue-50/60 rounded-xl text-xs text-blue-800 space-y-1">
+                    <div>เส้นทาง: <strong id="modal-route-text">-</strong></div>
+                    <div>วันเดินทาง: <strong id="modal-date-text">-</strong></div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">งบเป้าหมายที่ต้องการให้แจ้งเตือน (THB) *</label>
+                    <input type="number" id="modal-target-price" required placeholder="เช่น 6000" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold text-emerald-600 focus:bg-white">
+                    <p class="text-[11px] text-slate-500 mt-1">ถ้าราคาตั๋วถูกกว่าหรือเท่ากับงบนี้ ระบบจะส่งแจ้งเตือนเข้า Telegram/LINE ทันที</p>
+                </div>
+
+                <div class="space-y-2 pt-1">
+                    <label class="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                        <input type="checkbox" id="modal-notify-tg" checked class="text-blue-600 rounded">
+                        <span class="ml-2">แจ้งเตือนผ่าน Telegram Bot</span>
+                    </label>
+                    <br>
+                    <label class="inline-flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                        <input type="checkbox" id="modal-notify-line" checked class="text-blue-600 rounded">
+                        <span class="ml-2">แจ้งเตือนผ่าน LINE Notify</span>
+                    </label>
+                </div>
+
+                <div class="flex items-center justify-end space-x-2 pt-3 border-t">
+                    <button type="button" onclick="closeTrackModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">ยกเลิก</button>
+                    <button type="submit" class="px-5 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm">บันทึกการเฝ้าราคา</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Auto-Fill Assistant Action -->
+    <div id="modal-autofill-guide" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4">
+            <div class="flex items-center justify-between border-b pb-3">
+                <h3 class="font-bold text-slate-800 text-base flex items-center">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-500 mr-2"></i> ผู้ช่วย Auto-Fill กรอกข้อมูลอัตโนมัติ
+                </h3>
+                <button onclick="closeAutoFillModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3.5 text-xs text-slate-600">
+                <div class="p-3.5 bg-blue-50/80 rounded-xl border border-blue-200 text-blue-900 space-y-1">
+                    <div class="font-bold flex items-center"><i class="fa-solid fa-circle-check text-blue-600 mr-1.5"></i> ข้อมูลผู้โดยสารพร้อมกรอก:</div>
+                    <div id="modal-pax-summary" class="text-[11px] text-blue-700">-</div>
+                </div>
+                <!-- Security notice -->
+                <div class="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 flex items-center space-x-2">
+                    <i class="fa-solid fa-lock text-emerald-600"></i>
+                    <span class="text-[11px]">ข้อมูลพาสปอร์ตถูก <strong>เข้ารหัส AES-256 (Fernet)</strong> ก่อนบันทึก และจะถูกถอดรหัสเฉพาะตอนกรอกเท่านั้น</span>
+                </div>
+                <!-- Hidden anchor for URL ref -->
+                <a id="modal-open-booking-btn" href="#" class="hidden"></a>
+
+                <div class="space-y-2">
+                    <div class="font-bold text-slate-800">🤖 วิธีการทำงาน Auto-Fill:</div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                        <div class="flex items-start space-x-2">
+                            <span class="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center flex-shrink-0 text-[10px]">1</span>
+                            <span>กดปุ่ม <strong>"🤖 เปิดหน้าจอง + Auto-Fill ทันที!"</strong> — ระบบจะเปิดหน้าจองตั๋วและ copy Script ไว้ใน Clipboard อัตโนมัติ</span>
+                        </div>
+                        <div class="flex items-start space-x-2">
+                            <span class="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center flex-shrink-0 text-[10px]">2</span>
+                            <span>เมื่อถึงหน้ากรอกข้อมูลผู้โดยสาร เปิด Console (กด <strong>F12</strong> → Console) แล้ว <strong>Ctrl+V</strong> วาง Script และกด Enter</span>
+                        </div>
+                        <div class="flex items-start space-x-2">
+                            <span class="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center flex-shrink-0 text-[10px]">3</span>
+                            <span>หรือใช้ <strong>Bookmarklet</strong> (ลากปุ่มจากแท็บ "ผู้ช่วยจอง" ไปวางบน Bookmark Bar) — คลิก 1 ครั้งกรอกข้อมูลทั้งหมดทันที!</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t">
+                <button onclick="copyCurrentScript()" class="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center space-x-1">
+                    <i class="fa-solid fa-copy"></i>
+                    <span>คัดลอก Script (Console)</span>
+                </button>
+                <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                    <button type="button" onclick="closeAutoFillModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">ปิด</button>
+                    <button onclick="openBookingAndAutoFill()" class="px-5 py-2.5 text-xs font-black bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-md transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-rocket"></i>
+                        <span>🤖 เปิดหน้าจอง + Auto-Fill ทันที!</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- ====== STICKY SELECTED FLIGHT BAR ====== -->
+    <div id="selected-flight-bar" class="fixed bottom-0 left-0 right-0 z-40 hidden">
+        <div class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 border-t border-blue-700/40 shadow-2xl">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-500/30 flex items-center justify-center">
+                            <i class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+                        </div>
+                        <div>
+                            <div class="text-[11px] text-blue-300 font-semibold uppercase tracking-wider">เที่ยวบินที่เลือก</div>
+                            <div class="text-white font-black text-sm" id="sfb-summary">-</div>
+                        </div>
+                        <div class="hidden sm:block px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl">
+                            <div class="text-emerald-300 text-[11px] font-semibold">ราคารวม</div>
+                            <div class="text-emerald-400 font-black text-lg" id="sfb-price">-</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="clearSelectedFlight()" class="px-3 py-2 text-slate-400 hover:text-white text-xs font-semibold transition">
+                            <i class="fa-solid fa-xmark mr-1"></i>ยกเลิก
+                        </button>
+                        <button onclick="autoFillSelected()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>Auto-Fill</span>
+                        </button>
+                        <button onclick="bookSelected()" class="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white text-sm font-black rounded-xl shadow-lg transition flex items-center space-x-2">
+                            <i class="fa-solid fa-rocket"></i>
+                            <span>จองเลย!</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== TIME SLOTS DRAWER MODAL ====== -->
+    <div id="modal-timeslots" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div class="bg-white w-full sm:rounded-2xl sm:max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <!-- Header -->
+            <div class="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between z-10">
+                <div>
+                    <h3 class="font-black text-slate-800 text-base flex items-center">
+                        <i class="fa-solid fa-clock text-blue-500 mr-2"></i>
+                        <span id="ts-airline-name">เลือกช่วงเวลาบิน</span>
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5" id="ts-route-info">-</p>
+                </div>
+                <button onclick="closeTimeSlotsModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Slots Grid -->
+            <div class="p-5">
+                <div class="text-xs text-slate-500 mb-3 flex items-center">
+                    <i class="fa-solid fa-circle-info text-blue-400 mr-1.5"></i>
+                    เลือกเวลาที่ต้องการ ราคาอาจต่างกันในแต่ละช่วง
+                </div>
+                <div id="timeslots-grid" class="space-y-2.5">
+                    <!-- Populated by loadTimeSlots() -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast" class="fixed bottom-20 right-5 z-50 hidden px-4 py-3 rounded-xl shadow-lg text-sm font-semibold flex items-center space-x-2 transition-all duration-300"></div>
+
+
+    <!-- Frontend Logic Script -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
