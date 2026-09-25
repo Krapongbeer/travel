@@ -1,5 +1,35 @@
 // AirPrice Interactive App Logic
 
+// Sanitization & Security Helpers (OWASP XSS & Privacy Protection)
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function maskPassport(str) {
+    if (!str) return 'ไม่ระบุ';
+    const s = String(str).trim();
+    if (s.length <= 4) return s;
+    return s.slice(0, 2) + '*'.repeat(Math.max(3, s.length - 4)) + s.slice(-2);
+}
+
+function clearAllLocalData() {
+    if (!confirm("⚠️ คุณต้องการลบข้อมูลผู้โดยสาร รายการเฝ้าราคา และ Token การตั้งค่าทั้งหมดที่บันทึกไว้ในเบราว์เซอร์เครื่องนี้ใช่หรือไม่?")) return;
+    localStorage.removeItem("airprice_passengers");
+    localStorage.removeItem("airprice_watchlists");
+    localStorage.removeItem("airprice_settings");
+    sessionStorage.clear();
+    showToast("ล้างข้อมูลส่วนตัวในเบราว์เซอร์เรียบร้อยแล้ว", "success");
+    loadPassengers();
+    loadWatchlists();
+    loadSettings();
+}
+
 let currentOffers = [];
 let allAirports = [];
 let priceChartInstance = null;
@@ -292,19 +322,19 @@ function renderOffers(offers, pax = 1) {
             <div class="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white">
                 <div class="flex items-start sm:items-center space-x-4">
                     <div class="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden p-1 flex-shrink-0">
-                        ${flight.airline_logo ? `<img src="${flight.airline_logo}" alt="${flight.airline}" class="w-full h-full object-contain">` : `<i class="fa-solid fa-plane text-blue-500 text-xl"></i>`}
+                        ${flight.airline_logo ? `<img src="${encodeURI(flight.airline_logo)}" alt="${escapeHtml(flight.airline)}" class="w-full h-full object-contain">` : `<i class="fa-solid fa-plane text-blue-500 text-xl"></i>`}
                     </div>
                     <div class="space-y-1">
                         <div class="flex items-center flex-wrap gap-1">
                             ${bestBadge}
-                            <h4 class="font-bold text-slate-800 text-base">${flight.airline}</h4>
-                            <span class="text-xs text-slate-400 font-mono">(${outLeg.flight_number})</span>
+                            <h4 class="font-bold text-slate-800 text-base">${escapeHtml(flight.airline)}</h4>
+                            <span class="text-xs text-slate-400 font-mono">(${escapeHtml(outLeg.flight_number)})</span>
                         </div>
                         <div class="flex items-center flex-wrap gap-2 text-xs text-slate-500">
-                            <span><i class="fa-regular fa-clock mr-1"></i>${flight.duration}</span>
+                            <span><i class="fa-regular fa-clock mr-1"></i>${escapeHtml(flight.duration)}</span>
                             <span>•</span>
                             ${stopsBadge}
-                            <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-medium text-[11px]"><i class="fa-solid fa-plane-up mr-1 text-blue-500"></i>${outLeg.aircraft}</span>
+                            <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-medium text-[11px]"><i class="fa-solid fa-plane-up mr-1 text-blue-500"></i>${escapeHtml(outLeg.aircraft)}</span>
                         </div>
                     </div>
                 </div>
@@ -312,19 +342,19 @@ function renderOffers(offers, pax = 1) {
                 <!-- Times & Route Details -->
                 <div class="flex items-center space-x-6 px-2">
                     <div class="text-left">
-                        <div class="text-lg font-black text-slate-800">${outLeg.departure_time}</div>
-                        <div class="text-xs font-semibold text-slate-500">${flight.origin}</div>
+                        <div class="text-lg font-black text-slate-800">${escapeHtml(outLeg.departure_time)}</div>
+                        <div class="text-xs font-semibold text-slate-500">${escapeHtml(flight.origin)}</div>
                     </div>
                     <div class="flex flex-col items-center px-2">
-                        <span class="text-[10px] text-slate-400 font-medium">${flight.duration}</span>
+                        <span class="text-[10px] text-slate-400 font-medium">${escapeHtml(flight.duration)}</span>
                         <div class="w-24 sm:w-32 h-0.5 bg-slate-200 relative my-1">
                             <i class="fa-solid fa-plane text-[10px] text-blue-500 absolute left-1/2 -top-1.5 -translate-x-1/2"></i>
                         </div>
                         <span class="text-[10px] text-slate-400">${flight.stops === 0 ? 'บินตรง' : 'แวะพัก'}</span>
                     </div>
                     <div class="text-right">
-                        <div class="text-lg font-black text-slate-800">${outLeg.arrival_time}</div>
-                        <div class="text-xs font-semibold text-slate-500">${flight.destination}</div>
+                        <div class="text-lg font-black text-slate-800">${escapeHtml(outLeg.arrival_time)}</div>
+                        <div class="text-xs font-semibold text-slate-500">${escapeHtml(flight.destination)}</div>
                     </div>
                 </div>
 
@@ -715,15 +745,20 @@ async function submitWatchlist(e) {
         await loadWatchlists();
     }
 }
-
 async function loadWatchlists() {
+    let isBackendConnected = false;
     let list = [];
     try {
         const res = await fetch("/api/watchlists");
-        if (!res.ok) throw new Error("API unavailable");
-        list = await res.json();
+        if (res.ok) {
+            list = await res.json();
+            isBackendConnected = true;
+        } else {
+            throw new Error();
+        }
     } catch (e) {
         list = getLocalWatchlists();
+        isBackendConnected = false;
     }
         
     const badge = document.getElementById("watchlist-badge");
@@ -737,8 +772,33 @@ async function loadWatchlists() {
     const container = document.getElementById("watchlist-container");
     container.innerHTML = "";
 
+    // Architecture Status Header
+    const statusDiv = document.createElement("div");
+    statusDiv.className = `col-span-full p-3 rounded-xl border text-xs flex items-center justify-between flex-wrap gap-2 ${
+        isBackendConnected ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-900'
+    }`;
+    statusDiv.innerHTML = `
+        <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full ${isBackendConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}"></span>
+            <span class="font-bold">${
+                isBackendConnected 
+                    ? 'ระบบตรวจราคาอัตโนมัติ (Backend Online): ระบบกำลังรัน Background Scheduler ตรวจเช็คราคาทุก 6 ชม.'
+                    : 'โหมด GitHub Pages (Client-Only): บันทึกในเบราว์เซอร์เครื่องนี้ กด "ตรวจเช็คราคาทันที" เพื่ออัปเดตราคา'
+            }</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+            <button onclick="clearAllLocalData()" class="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-600 font-bold rounded-lg border border-slate-200 text-[11px]">
+                <i class="fa-solid fa-broom mr-1"></i>ล้างข้อมูลในเครื่อง
+            </button>
+        </div>
+    `;
+    container.appendChild(statusDiv);
+
     if (list.length === 0) {
-        container.innerHTML = `<div class="col-span-full bg-white p-8 rounded-2xl text-center text-slate-500 border border-slate-200">ยังไม่มีรายการเฝ้าราคา คลิกค้นหาตั๋วแล้วกด "ตั้งแจ้งเตือนราคานี้" ได้เลยครับ</div>`;
+        const emptyDiv = document.createElement("div");
+        emptyDiv.className = "col-span-full bg-white p-8 rounded-2xl text-center text-slate-500 border border-slate-200";
+        emptyDiv.textContent = 'ยังไม่มีรายการเฝ้าราคา คลิกค้นหาตั๋วแล้วกด "ตั้งแจ้งเตือนราคานี้" ได้เลยครับ';
+        container.appendChild(emptyDiv);
         return;
     }
 
@@ -748,10 +808,10 @@ async function loadWatchlists() {
         card.innerHTML = `
             <div class="flex items-start justify-between">
                 <div>
-                    <h4 class="font-bold text-slate-800 text-base">${w.origin} ✈ ${w.destination}</h4>
-                    <p class="text-xs text-slate-500">📅 ${w.departure_date} ${w.return_date ? 'ถึง ' + w.return_date : '(เที่ยวเดียว)'}</p>
+                    <h4 class="font-bold text-slate-800 text-base">${escapeHtml(w.origin)} ✈ ${escapeHtml(w.destination)}</h4>
+                    <p class="text-xs text-slate-500">📅 ${escapeHtml(w.departure_date)} ${w.return_date ? 'ถึง ' + escapeHtml(w.return_date) : '(เที่ยวเดียว)'}</p>
                 </div>
-                <button onclick="deleteWatchlist(${w.id})" class="text-slate-400 hover:text-red-500 p-1">
+                <button onclick="deleteWatchlist(${w.id})" class="text-slate-400 hover:text-red-500 p-1" title="ลบรายการนี้">
                     <i class="fa-solid fa-trash-can text-sm"></i>
                 </button>
             </div>
@@ -766,7 +826,7 @@ async function loadWatchlists() {
                 </div>
             </div>
             <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-                <span>เช็คล่าสุด: ${w.last_checked_at || 'กำลังรอตรวจ'}</span>
+                <span>เช็คล่าสุด: ${escapeHtml(w.last_checked_at || 'กำลังรอตรวจ')}</span>
                 <div class="flex items-center space-x-1.5">
                     ${w.notify_telegram ? '<i class="fa-brands fa-telegram text-sky-500 text-xs" title="แจ้งเตือน Telegram"></i>' : ''}
                     ${w.notify_line ? '<i class="fa-brands fa-line text-emerald-500 text-xs" title="แจ้งเตือน LINE"></i>' : ''}
@@ -901,31 +961,43 @@ async function loadPassengers() {
         }
     }
 
-    // Add master button to copy script for all passengers
+    // Add master button to copy script for all passengers and privacy clear button
     const headerDiv = document.createElement("div");
-    headerDiv.className = "flex items-center justify-between pb-2 border-b border-slate-200 mb-3";
+    headerDiv.className = "flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 mb-3";
     headerDiv.innerHTML = `
         <span class="text-xs font-bold text-slate-600">👥 บันทึกไว้ทั้งหมด ${list.length} ท่าน</span>
-        <button onclick="copyAutoFillBookmarklet()" class="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition flex items-center space-x-1">
-            <i class="fa-solid fa-users"></i>
-            <span>คัดลอก Script กรอกทั้งคณะ (${list.length} คน)</span>
-        </button>
+        <div class="flex items-center space-x-2">
+            <button onclick="clearAllLocalData()" title="ลบข้อมูลที่บันทึกไว้ในเบราว์เซอร์เครื่องนี้ทั้งหมด" class="text-xs px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg border border-rose-200 transition flex items-center space-x-1">
+                <i class="fa-solid fa-broom"></i>
+                <span>ล้างข้อมูลในเครื่อง</span>
+            </button>
+            <button onclick="copyAutoFillBookmarklet()" class="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition flex items-center space-x-1">
+                <i class="fa-solid fa-users"></i>
+                <span>คัดลอก Script ทั้งคณะ (${list.length} คน)</span>
+            </button>
+        </div>
     `;
     container.appendChild(headerDiv);
 
     list.forEach((p, idx) => {
         const item = document.createElement("div");
         item.className = "p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between";
+        const masked = maskPassport(p.passport_number);
         item.innerHTML = `
             <div>
                 <div class="font-bold text-sm text-slate-800">
                     <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-md text-xs font-bold mr-1.5">ผู้โดยสาร #${idx + 1}</span>
-                    ${p.title} ${p.first_name} ${p.last_name}
+                    ${escapeHtml(p.title)} ${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}
                 </div>
-                <div class="text-xs text-slate-500 mt-1">พาสปอร์ต: <span class="font-mono font-bold">${p.passport_number || '-'}</span> • เกิด: ${p.date_of_birth} • อีเมล: ${p.email} • โทร: ${p.phone_number}</div>
+                <div class="text-xs text-slate-500 mt-1">
+                    พาสปอร์ต: <span class="font-mono font-bold text-slate-700" title="คลิกปุ่ม Script เพื่อคัดลอกเลขจริง">${escapeHtml(masked)}</span> • 
+                    เกิด: ${escapeHtml(p.date_of_birth || '-')} • 
+                    อีเมล: ${escapeHtml(p.email || '-')} • 
+                    โทร: ${escapeHtml(p.phone_number || '-')}
+                </div>
             </div>
             <div class="flex items-center space-x-2">
-                <button onclick="copyAutoFillBookmarklet(${p.id})" title="คัดลอกเฉพาะคนนี้" class="text-xs px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition flex items-center space-x-1">
+                <button onclick="copyAutoFillBookmarklet(${p.id})" title="คัดลอก Script สำหรับคนนี้" class="text-xs px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition flex items-center space-x-1">
                     <i class="fa-solid fa-code"></i>
                     <span>Script</span>
                 </button>
@@ -1012,7 +1084,7 @@ async function openBookingCheckoutModal(idx) {
                 <div class="mt-1 text-slate-500 text-[11px]">หากไม่ได้เพิ่ม สามารถกดไปหน้าชำระเงินและพิมพ์ชื่อบนเว็บออกตั๋วได้เช่นกัน</div>
             `;
         } else {
-            const summary = passList.map((p, i) => `#${i+1} <strong>${p.first_name} ${p.last_name}</strong> (${p.nationality || 'THAI'} · พาสปอร์ต: ${p.passport_number || 'ไม่ระบุ'})`).join('<br>');
+            const summary = passList.map((p, i) => `#${i+1} <strong>${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</strong> (${escapeHtml(p.nationality || 'THAI')} · พาสปอร์ต: ${escapeHtml(maskPassport(p.passport_number))})`).join('<br>');
             paxSummaryEl.innerHTML = summary;
         }
     }

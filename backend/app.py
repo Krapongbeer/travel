@@ -1,7 +1,9 @@
 import os
+import time
 import logging
+from collections import defaultdict
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Depends, HTTPException, Query, Response
+from fastapi import FastAPI, Depends, HTTPException, Query, Response, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -33,13 +35,57 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# --- Security & Hardened CORS ---
+ALLOWED_ORIGINS = [
+    "https://krapongbeer.github.io",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+custom_origins = os.environ.get("CORS_ORIGINS", "")
+if custom_origins:
+    ALLOWED_ORIGINS.extend([o.strip() for o in custom_origins.split(",") if o.strip()])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
 )
+
+# --- In-Memory Rate Limiter (Anti-DDoS / Abuse Protection) ---
+_client_rate_records = defaultdict(list)
+
+def apply_rate_limit(request: Request, max_requests: int = 60, window_seconds: int = 60):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    timestamps = _client_rate_records[client_ip]
+    _client_rate_records[client_ip] = [t for t in timestamps if now - t < window_seconds]
+    if len(_client_rate_records[client_ip]) >= max_requests:
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
+    _client_rate_records[client_ip].append(now)
+
+# --- Optional API Key Protection (For Cloud/Public Deployments) ---
+AIRPRICE_API_KEY = os.environ.get("AIRPRICE_API_KEY", "").strip()
+
+def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    If AIRPRICE_API_KEY is configured in env, require it on protected endpoints.
+    If not configured (default local dev mode), pass through.
+    """
+    if not AIRPRICE_API_KEY:
+        return True
+    token = x_api_key
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+    if token != AIRPRICE_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing API Key")
+    return True
 
 # Startup & Shutdown Events
 @app.on_event("startup")
@@ -117,8 +163,9 @@ def get_airports():
     }
 
 @app.post("/api/search")
-async def search_flights(req: SearchRequest, db: Session = Depends(get_db)):
+async def search_flights(req: SearchRequest, request: Request, db: Session = Depends(get_db)):
     """Search flight offers across Asian routes and save history."""
+    apply_rate_limit(request, max_requests=60, window_seconds=60)
     if not req.origin or not req.destination or not req.departure_date:
         raise HTTPException(status_code=400, detail="Missing required search parameters.")
 
@@ -267,7 +314,7 @@ def list_watchlists(db: Session = Depends(get_db)):
         for w in items
     ]
 
-@app.post("/api/watchlists")
+@app.post("/api/watchlists", dependencies=[Depends(verify_api_key)])
 def add_watchlist(req: WatchlistCreate, db: Session = Depends(get_db)):
     item = crud.create_watchlist(
         db=db,
@@ -282,12 +329,12 @@ def add_watchlist(req: WatchlistCreate, db: Session = Depends(get_db)):
     )
     return {"success": True, "id": item.id}
 
-@app.delete("/api/watchlists/{watchlist_id}")
+@app.delete("/api/watchlists/{watchlist_id}", dependencies=[Depends(verify_api_key)])
 def remove_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
     success = crud.delete_watchlist(db, watchlist_id)
     return {"success": success}
 
-@app.post("/api/watchlists/check-now")
+@app.post("/api/watchlists/check-now", dependencies=[Depends(verify_api_key)])
 async def trigger_price_check():
     """Manually trigger background price checker right now."""
     await check_watchlist_prices()
@@ -315,12 +362,12 @@ def list_passengers(db: Session = Depends(get_db)):
         })
     return result
 
-@app.post("/api/passengers")
+@app.post("/api/passengers", dependencies=[Depends(verify_api_key)])
 def add_passenger(req: PassengerCreate, db: Session = Depends(get_db)):
     profile = crud.save_passenger_profile(db, req.dict())
     return {"success": True, "id": profile.id}
 
-@app.delete("/api/passengers/{passenger_id}")
+@app.delete("/api/passengers/{passenger_id}", dependencies=[Depends(verify_api_key)])
 def delete_passenger(passenger_id: int, db: Session = Depends(get_db)):
     success = crud.delete_passenger_profile(db, passenger_id)
     return {"success": success}
@@ -420,7 +467,7 @@ def get_settings(db: Session = Depends(get_db)):
         "discord_webhook_url": crud.get_setting(db, "DISCORD_WEBHOOK_URL")
     }
 
-@app.post("/api/settings")
+@app.post("/api/settings", dependencies=[Depends(verify_api_key)])
 def update_settings(req: SettingsUpdate, db: Session = Depends(get_db)):
     if req.telegram_bot_token is not None:
         crud.set_setting(db, "TELEGRAM_BOT_TOKEN", req.telegram_bot_token)
@@ -432,8 +479,9 @@ def update_settings(req: SettingsUpdate, db: Session = Depends(get_db)):
         crud.set_setting(db, "DISCORD_WEBHOOK_URL", req.discord_webhook_url)
     return {"success": True, "message": "Settings updated successfully."}
 
-@app.post("/api/alerts/test")
-async def test_alert(req: TestAlertRequest, db: Session = Depends(get_db)):
+@app.post("/api/alerts/test", dependencies=[Depends(verify_api_key)])
+async def test_alert(req: TestAlertRequest, request: Request, db: Session = Depends(get_db)):
+    apply_rate_limit(request, max_requests=10, window_seconds=60)
     tg_token = crud.get_setting(db, "TELEGRAM_BOT_TOKEN")
     tg_chat_id = crud.get_setting(db, "TELEGRAM_CHAT_ID")
     line_token = crud.get_setting(db, "LINE_NOTIFY_TOKEN")

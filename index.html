@@ -350,7 +350,7 @@
             </div>
 
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
-                <div class="flex items-start justify-between">
+                <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <h2 class="text-lg font-bold text-slate-800 flex items-center">
                             <i class="fa-solid fa-user-astronaut text-blue-600 mr-2"></i>
@@ -359,6 +359,21 @@
                         <p class="text-xs text-slate-500 mt-1">
                             บันทึกข้อมูลของคุณและเพื่อนร่วมทริปไว้ เพื่อใช้กรอกลงในหน้าจองตั๋วอัตโนมัติ
                         </p>
+                    </div>
+                    <button onclick="clearAllLocalData()" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition flex items-center space-x-1">
+                        <i class="fa-solid fa-broom"></i>
+                        <span>ล้างข้อมูลในเครื่องทั้งหมด</span>
+                    </button>
+                </div>
+
+                <!-- Privacy & LocalStorage Security Notice -->
+                <div class="mt-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-start space-x-2.5">
+                    <i class="fa-solid fa-shield-halved text-emerald-600 text-sm mt-0.5 flex-shrink-0"></i>
+                    <div class="space-y-1">
+                        <div class="font-bold">🔒 ความเป็นส่วนตัวและความปลอดภัยของข้อมูล (Privacy First)</div>
+                        <div class="text-[11px] text-emerald-800 leading-relaxed">
+                            ข้อมูลผู้โดยสารถูกจัดเก็บใน LocalStorage บนเบราว์เซอร์เครื่องนี้เท่านั้นสำหรับใช้ช่วยกรอกข้อมูล (Auto-Fill) ไม่มีส่งข้อมูลส่วนบุคคลไปยังเซิร์ฟเวอร์ภายนอก หากท่านใช้งานบนเครื่องสาธารณะ แนะนำให้กดปุ่ม <strong>"ล้างข้อมูลในเครื่องทั้งหมด"</strong> หลังจากใช้งานเสร็จสิ้น
+                        </div>
                     </div>
                 </div>
 
@@ -487,7 +502,11 @@
                         </div>
                     </div>
 
-                    <div class="flex justify-end pt-2">
+                    <div class="flex items-center justify-between pt-2">
+                        <button type="button" onclick="clearAllLocalData()" class="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs border border-rose-200 transition flex items-center space-x-1">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>ล้าง Token และข้อมูลในเครื่องทั้งหมด</span>
+                        </button>
                         <button type="submit" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md transition">
                             💾 บันทึกการตั้งค่า
                         </button>
